@@ -86,7 +86,7 @@ func (e *Expander) Expand(ctx context.Context, obj *Object) (err error) {
 // given directory.
 func (e *Expander) ExpandTarball(ctx context.Context, in io.Reader, dir string) (err error) {
 
-	e.Logger.Println("Expanding a tarball to", dir)
+	e.Logger.Println("Expanding the tarball to", dir)
 	reader := tar.NewReader(in)
 	var header *tar.Header
 	for {
@@ -114,9 +114,21 @@ func (e *Expander) ExpandTarball(ctx context.Context, in io.Reader, dir string) 
 			}
 
 		} else {
+			// Chack parent directories exist.
+			dir := filepath.Dir(name)
+			_, err = os.Stat(dir)
+			if err != nil {
+				e.Logger.Println("Creating directories", dir)
+				err = os.MkdirAll(dir, 0744)
+				if err != nil {
+					break
+				}
+				err = nil
+			}
+
 			e.Logger.Println("Writing file", name)
 			var fp *os.File
-			fp, err = os.OpenFile(name, os.O_WRONLY|os.O_CREATE, 0644)
+			fp, err = os.OpenFile(name, os.O_WRONLY|os.O_CREATE, header.FileInfo().Mode())
 			if err != nil {
 				break
 			}
@@ -130,7 +142,10 @@ func (e *Expander) ExpandTarball(ctx context.Context, in io.Reader, dir string) 
 		}
 	}
 
-	e.Logger.Println("Finished to expand a tarball to", dir)
+	if err != nil {
+		return
+	}
+	e.Logger.Println("Finished to expand the tarball to", dir)
 	return
 
 }

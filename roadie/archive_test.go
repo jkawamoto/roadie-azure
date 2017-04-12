@@ -73,7 +73,7 @@ func TestExpandTarball(t *testing.T) {
 	if err != nil {
 		t.Error(err.Error())
 	} else if !info.IsDir() {
-		t.Error("Expandedn folder empty is not a directory")
+		t.Error("Expanded folder empty is not a directory")
 	}
 
 }
