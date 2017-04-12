@@ -142,7 +142,7 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 		}
 	}
 
-	return fmt.Errorf("Unsupported source file type", s.Source)
+	return fmt.Errorf("Unsupported source file type: %v", s.Source)
 }
 
 // DownloadDataFiles downloads files specified in data section.
@@ -335,7 +335,7 @@ func (s *Script) Start(ctx context.Context, stdout, stderr io.Writer) (err error
 		var exit int64
 		exit, err = cli.ContainerWait(ctx, container.ID)
 		if exit != 0 {
-			err = fmt.Errorf("Testing container returns an error:", exit)
+			err = fmt.Errorf("Testing container returns an error: %v", exit)
 		}
 
 	}()
