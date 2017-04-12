@@ -1,3 +1,5 @@
+pkg
+
 ### https://raw.github.com/github/gitignore/f2ce448f2ba7a092da05482ceca99209127c0884/go.gitignore
 
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
@@ -30,5 +32,3 @@ _testmain.go
 
 # External packages folder
 vendor/
-
-
