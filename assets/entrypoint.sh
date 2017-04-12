@@ -22,12 +22,11 @@
 
 # This template is an entrypoint of a docker container to execute run steps.
 #
-set -e
 if [[ $# != 0 ]]; then
   exec $@
 fi
 
 {{range $index, $elements := .Run}}
 echo "{{.}}"
-sh -c "{{.}} > /tmp/stdout${index}.txt"
+sh -c "{{.}}" > /tmp/stdout{{$index}}.txt
 {{end}}
