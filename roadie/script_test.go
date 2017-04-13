@@ -156,6 +156,8 @@ func TestArchiveContext(t *testing.T) {
 func TestDocker(t *testing.T) {
 	t.SkipNow()
 
+	buf := bytes.NewBuffer(nil)
+	logger := log.New(buf, "", log.LstdFlags)
 	script := Script{
 		Script: script.Script{
 			APT: []string{
@@ -166,6 +168,7 @@ func TestDocker(t *testing.T) {
 				"./cmd.sh",
 			},
 		},
+		Logger: logger,
 	}
 
 	wd, err := os.Getwd()
@@ -184,18 +187,15 @@ func TestDocker(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	stdout := bytes.NewBuffer(nil)
-	stderr := bytes.NewBuffer(nil)
-	err = script.Start(ctx, stdout, stderr)
+	err = script.Start(ctx)
 	if err != nil {
 		t.Error(err.Error())
 	}
 
-	res := string(stdout.Bytes())
+	res := buf.String()
 	if !strings.Contains(res, "abc") {
 		t.Error("Outputted result is not correct:", res)
 	}
-	t.Log(string(stderr.Bytes()))
 
 }
 

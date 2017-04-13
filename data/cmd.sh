@@ -1,2 +1,2 @@
 #!/bin/sh
-cat abc.txt
+cat abc.txt >&2

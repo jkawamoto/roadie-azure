@@ -37,13 +37,13 @@ var Commands = []cli.Command{
 	{
 		Name:      "init",
 		Usage:     "run the initialization process",
-		ArgsUsage: " ",
+		ArgsUsage: "<config file> <instance name>",
 		Action:    command.CmdInit,
 	},
 	{
 		Name:      "exec",
 		Usage:     "execute the given script under the given configuration",
-		ArgsUsage: "<config file> <script file>",
+		ArgsUsage: "<config file> <script file> <instance name>",
 		Action:    command.CmdExec,
 	},
 	{

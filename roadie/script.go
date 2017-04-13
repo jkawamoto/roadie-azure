@@ -235,8 +235,8 @@ func (s *Script) Build(ctx context.Context, root string) (err error) {
 	eg.Go(func() error {
 		defer os.Stdout.Sync()
 
-		s := bufio.NewScanner(res.Body)
-		for s.Scan() {
+		scanner := bufio.NewScanner(res.Body)
+		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -244,12 +244,11 @@ func (s *Script) Build(ctx context.Context, root string) (err error) {
 			}
 
 			var log buildLog
-			e := s.Text()
-			if json.Unmarshal([]byte(e), &log) == nil {
+			if json.Unmarshal(scanner.Bytes(), &log) == nil {
 				if log.Error != "" {
 					return fmt.Errorf(log.Error)
 				}
-				os.Stdout.WriteString(log.Stream)
+				s.Logger.Println(log.Stream)
 			}
 		}
 		return nil
@@ -265,7 +264,7 @@ func (s *Script) Build(ctx context.Context, root string) (err error) {
 }
 
 // Start starts a docker container and executes run section of this script.
-func (s *Script) Start(ctx context.Context, stdout, stderr io.Writer) (err error) {
+func (s *Script) Start(ctx context.Context) (err error) {
 
 	s.Logger.Println("Start executing run tasks")
 
@@ -307,7 +306,7 @@ func (s *Script) Start(ctx context.Context, stdout, stderr io.Writer) (err error
 	}
 	// Context ctx may be canceled before removing the container,
 	// and use another context here.
-	// defer cli.ContainerRemove(context.Background(), container.ID, types.ContainerRemoveOptions{})
+	defer cli.ContainerRemove(context.Background(), container.ID, types.ContainerRemoveOptions{})
 
 	// Attach stdout and stderr of the container.
 	stream, err := cli.ContainerAttach(ctx, container.ID, types.ContainerAttachOptions{
@@ -319,7 +318,19 @@ func (s *Script) Start(ctx context.Context, stdout, stderr io.Writer) (err error
 		return
 	}
 	defer stream.Close()
-	go stdcopy.StdCopy(stdout, stderr, stream.Reader)
+
+	pipeReader, pipeWeiter := io.Pipe()
+	go func() {
+		defer pipeReader.Close()
+		scanner := bufio.NewScanner(pipeReader)
+		for scanner.Scan() {
+			s.Logger.Println(scanner.Text())
+		}
+	}()
+	go func() {
+		defer pipeWeiter.Close()
+		stdcopy.StdCopy(pipeWeiter, pipeWeiter, stream.Reader)
+	}()
 
 	// Start the container.
 	options := types.ContainerStartOptions{}
