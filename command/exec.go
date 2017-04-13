@@ -36,12 +36,12 @@ import (
 type Exec struct {
 	Config string
 	Script string
+	Name   string
 }
 
 // run executes exec command.
 func (e *Exec) run() (err error) {
 
-	logger := log.New(os.Stderr, "", log.LstdFlags)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -51,6 +51,16 @@ func (e *Exec) run() (err error) {
 		// Thus, terminate the computation.
 		return
 	}
+
+	logWriter, err := roadie.NewLogWriter(ctx, cfg, azure.LogContainer, fmt.Sprintf("%v.log", e.Name))
+	if err != nil {
+		// If cannot create a logWriter, all logs will be lost but should continue
+		// executing this script.
+		logWriter = os.Stderr
+	} else {
+		defer logWriter.Close()
+	}
+	logger := log.New(logWriter, "", log.LstdFlags)
 
 	// Delete the config file and script file from the storage.
 	storage, err := azure.NewStorageService(ctx, cfg, logger)
@@ -95,7 +105,7 @@ func (e *Exec) run() (err error) {
 	if err != nil {
 		return
 	}
-	err = script.Start(ctx, os.Stdout, os.Stderr)
+	err = script.Start(ctx)
 	if err != nil {
 		// Even if some errors occur, result files need to be uploads;
 		// thus not terminate this computation.
@@ -116,14 +126,15 @@ func (e *Exec) run() (err error) {
 // CmdExec defines the action for the exec command.
 func CmdExec(c *cli.Context) (err error) {
 
-	if c.NArg() != 2 {
-		fmt.Printf("expected 2 arguments but %d given\n", c.NArg())
+	if c.NArg() != 3 {
+		fmt.Printf("expected 3 arguments but %d given\n", c.NArg())
 		return cli.ShowSubcommandHelp(c)
 	}
 
 	e := &Exec{
 		Config: c.Args().First(),
 		Script: c.Args().Get(1),
+		Name:   c.Args().Get(2),
 	}
 	return e.run()
 

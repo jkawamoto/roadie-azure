@@ -27,7 +27,10 @@ asset:
 	go-bindata -pkg assets -o assets/assets.go -nometadata assets/*
 
 build:
-	goxc -d=pkg -pv=$(VERSION) -os="linux" -arch="amd64"
+	mkdir -p pkg/$(VERSION)/roadie-azure_linux_amd64
+	GOOS=linux GOARCH=amd64 go build -o pkg/$(VERSION)/roadie-azure_linux_amd64/roadie-azure
+	cd pkg/$(VERSION) && tar -zcvf roadie-azure_linux_amd64.tar.gz roadie-azure_linux_amd64
+	rm -r pkg/$(VERSION)/roadie-azure_linux_amd64
 
 release:
 	ghr -u jkawamoto  v$(VERSION) pkg/$(VERSION)
