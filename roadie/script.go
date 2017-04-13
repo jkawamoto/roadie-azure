@@ -96,10 +96,39 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 
 	case strings.HasSuffix(s.Source, ".git"):
 		s.Logger.Println("Cloning the source repository", s.Source)
-		e := NewExecutor()
-		git := exec.CommandContext(ctx, "git", "clone", s.Source, ".")
-		err = e.Exec(ctx, git)
-		return
+		cmd := exec.CommandContext(ctx, "git", "clone", s.Source, ".")
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			s.Logger.Println("Cannot read stdout of git:", err.Error())
+		} else {
+			go func() {
+				defer stdout.Close()
+				scanner := bufio.NewScanner(stdout)
+				for scanner.Scan() {
+					s.Logger.Println(scanner.Text())
+				}
+			}()
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			s.Logger.Println("Cannot read stderr of git:", err.Error())
+		} else {
+			go func() {
+				defer stderr.Close()
+				scanner := bufio.NewScanner(stderr)
+				for scanner.Scan() {
+					s.Logger.Println(scanner.Text())
+				}
+			}()
+		}
+
+		err = cmd.Start()
+		if err == nil {
+			err = cmd.Wait()
+		}
+		return err
 
 	case strings.HasPrefix(s.Source, "http://") || strings.HasPrefix(s.Source, "https://"):
 		s.Logger.Println("Downloading the source code", s.Source)
