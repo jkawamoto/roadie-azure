@@ -46,19 +46,6 @@ var Commands = []cli.Command{
 		ArgsUsage: "<config file> <script file> <instance name>",
 		Action:    command.CmdExec,
 	},
-	{
-		Name:      "release",
-		Usage:     "remove a given pool as a release process",
-		ArgsUsage: "<config file>",
-		Action:    command.CmdRelease,
-		Flags: []cli.Flag{
-			cli.StringFlag{
-				Name:   "pool",
-				Usage:  "pool ID to be deleted from the batch account",
-				EnvVar: "AZ_BATCH_POOL_ID",
-			},
-		},
-	},
 }
 
 // CommandNotFound prints an error message when a given command is not supported.
