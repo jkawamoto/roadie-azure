@@ -25,6 +25,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -33,6 +34,7 @@ import (
 	"github.com/jkawamoto/roadie-azure/assets"
 	"github.com/jkawamoto/roadie-azure/roadie"
 	"github.com/jkawamoto/roadie/cloud/azure"
+	"github.com/jkawamoto/roadie/cloud/azure/auth"
 	"github.com/urfave/cli"
 )
 
@@ -55,17 +57,46 @@ func (e *Init) run() (err error) {
 		return
 	}
 
-	logWriter, err := roadie.NewLogWriter(ctx, cfg, azure.LogContainer, fmt.Sprintf("%v-init.log", e.Name))
+	var logWriter io.WriteCloser
+	storage, err := azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
 	if err != nil {
-		// If cannot create a logWriter, all logs will be lost but should continue
-		// executing this script.
-		logWriter = os.Stderr
-		fmt.Fprintln(logWriter, "Cannot connect log writer to the cloud storage:", err.Error())
+		var token *auth.Token
+		a := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
+		token, err = a.RefreshToken(&cfg.Token)
+		if err != nil {
+			logWriter = os.Stderr
+			fmt.Fprintln(os.Stderr, "Cannot renew an authentication token")
+
+		} else {
+			cfg.Token = *token
+			storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
+			if err != nil {
+				// If cannot create a storage service, all logs will be lost but should
+				// continue executing this script.
+				logWriter = os.Stderr
+				fmt.Fprintln(logWriter, "Cannot connect log writer to the cloud storage:", err.Error())
+
+			} else {
+				logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name))
+				defer logWriter.Close()
+
+			}
+
+		}
+
 	} else {
+		logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name))
 		defer logWriter.Close()
 	}
 	logger := log.New(logWriter, "", log.LstdFlags)
 
+	logger.Println("Deleting the config file from the cloud storage")
+	err = storage.Delete(ctx, azure.StartupContainer, e.Config)
+	if err != nil {
+		logger.Println("* Cannot delete the config file from the cloud storage:", err.Error())
+	}
+
+	logger.Println("Creating init script")
 	filename := filepath.Join(os.TempDir(), "init.sh")
 	err = createInitScript(filename)
 	if err != nil {
@@ -73,7 +104,7 @@ func (e *Init) run() (err error) {
 		return
 	}
 
-	logger.Println("Prepare job")
+	logger.Println("Configurating this job")
 	cmd := exec.CommandContext(ctx, filename)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -104,7 +135,9 @@ func (e *Init) run() (err error) {
 		err = cmd.Wait()
 	}
 	if err != nil {
-		logger.Println("Finished preparing to execute tasks")
+		logger.Println("Cannot finish configurating the job")
+	} else {
+		logger.Println("Finished configurating this job")
 	}
 	return
 
