@@ -29,6 +29,7 @@ import (
 
 	"github.com/jkawamoto/roadie-azure/roadie"
 	"github.com/jkawamoto/roadie/cloud/azure"
+	"github.com/jkawamoto/roadie/cloud/azure/auth"
 	"github.com/urfave/cli"
 )
 
@@ -45,6 +46,7 @@ func (e *Exec) run() (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	fmt.Println("Reading config")
 	cfg, err := azure.NewAzureConfigFromFile(e.Config)
 	if err != nil {
 		// If cannot read the given config file, cannot upload computation results.
@@ -52,23 +54,33 @@ func (e *Exec) run() (err error) {
 		return
 	}
 
-	logWriter, err := roadie.NewLogWriter(ctx, cfg, azure.LogContainer, fmt.Sprintf("%v.log", e.Name))
+	fmt.Println("Creating a storage service")
+	storage, err := azure.NewStorageService(ctx, cfg, nil)
 	if err != nil {
-		// If cannot create a logWriter, all logs will be lost but should continue
-		// executing this script.
-		logWriter = os.Stderr
-	} else {
-		defer logWriter.Close()
+
+		var token *auth.Token
+		authorizer := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
+		token, err = authorizer.RefreshToken(&cfg.Token)
+		if err != nil {
+			return
+		}
+
+		cfg.Token = *token
+		storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
+		if err != nil {
+			// If cannot create an interface to storage service, cannot upload
+			// computation results. Thus terminate this computation.
+			return
+		}
+
 	}
+
+	fmt.Println("Creating a logger")
+	logWriter := roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v.log", e.Name))
+	defer logWriter.Close()
 	logger := log.New(logWriter, "", log.LstdFlags)
 
 	// Delete the config file and script file from the storage.
-	storage, err := azure.NewStorageService(ctx, cfg, logger)
-	if err != nil {
-		// If cannot create an interface to storage service, cannot upload
-		// computation results. Thus terminate this computation.
-		return
-	}
 	logger.Println("Deleting the config file from the cloud storage")
 	err = storage.Delete(ctx, azure.StartupContainer, e.Config)
 	if err != nil {

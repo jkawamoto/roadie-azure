@@ -23,26 +23,45 @@ package roadie
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 
 	"github.com/jkawamoto/roadie/cloud/azure"
 )
 
+type pipedWriter struct {
+	io.WriteCloser
+	done chan struct{}
+}
+
+func (w *pipedWriter) Close() (err error) {
+	err = w.WriteCloser.Close()
+	<-w.done
+	return
+}
+
 // NewLogWriter creates a new writer which writes messages to a given named
-// file in a given named container in the cloud storage.
-func NewLogWriter(ctx context.Context, cfg *azure.AzureConfig, container, name string) (writer io.WriteCloser, err error) {
+// file in the cloud storage.
+func NewLogWriter(ctx context.Context, storage *azure.StorageService, name string) (writer io.WriteCloser) {
 
 	reader, writer := io.Pipe()
-	storage, err := azure.NewStorageService(ctx, cfg, nil)
-	if err != nil {
-		return
-	}
+	done := make(chan struct{}, 1)
 
 	go func() {
 		defer reader.Close()
-		storage.Upload(ctx, container, name, reader)
+		_, err := storage.UploadWithMetadata(ctx, azure.LogContainer, name, reader, map[string]string{
+			"Content-Type": "text/plain",
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+		}
+		close(done)
 	}()
 
-	return
+	return &pipedWriter{
+		WriteCloser: writer,
+		done:        done,
+	}
 
 }
