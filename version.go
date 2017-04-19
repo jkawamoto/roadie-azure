@@ -25,7 +25,7 @@ const (
 	// Name of this command.
 	Name string = "roadie-azure"
 	// Version of this command.
-	Version string = "0.2.2"
+	Version string = "0.2.3"
 	// Author defines the author of this program.
 	Author string = "Junpei Kawamoto"
 	// Email defines an email address of the author.
