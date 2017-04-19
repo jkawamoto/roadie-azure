@@ -35,9 +35,8 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/jkawamoto/roadie/script"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestDockerfile(t *testing.T) {

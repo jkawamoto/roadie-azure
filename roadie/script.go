@@ -35,7 +35,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"text/template"
 	"time"
@@ -51,6 +50,7 @@ import (
 	"github.com/jkawamoto/roadie-azure/assets"
 	"github.com/jkawamoto/roadie/cloud/azure"
 	"github.com/jkawamoto/roadie/script"
+	"github.com/shirou/gopsutil/mem"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -311,12 +311,17 @@ func (s *Script) Start(ctx context.Context) (err error) {
 		return
 	}
 
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
 	config := container.Config{
 		Image: s.InstanceName,
 		Cmd:   strslice.StrSlice{""},
 		// Env:   os.Environ(),
+	}
+
+	var cap int64
+	if v, err2 := mem.VirtualMemory(); err2 != nil {
+		cap = 0
+	} else {
+		cap = int64(float64(v.Total) * 0.95)
 	}
 	host := container.HostConfig{
 		Mounts: []mount.Mount{
@@ -332,9 +337,10 @@ func (s *Script) Start(ctx context.Context) (err error) {
 			},
 		},
 		Resources: container.Resources{
-			Memory: int64(float64(mem.Sys) * 0.95),
+			Memory: cap,
 		},
 	}
+
 	container, err := cli.ContainerCreate(ctx, &config, &host, nil, "")
 	if err != nil {
 		return
@@ -381,7 +387,7 @@ func (s *Script) Start(ctx context.Context) (err error) {
 		var exit int64
 		exit, err = cli.ContainerWait(ctx, container.ID)
 		if exit != 0 {
-			err = fmt.Errorf("Testing container returns an error: %v", exit)
+			err = fmt.Errorf("Sandbox container returns an error: %v", exit)
 		}
 
 	}()
