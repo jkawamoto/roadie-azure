@@ -276,9 +276,9 @@ func (s *Script) Build(ctx context.Context, root string) (err error) {
 			var log buildLog
 			if json.Unmarshal(scanner.Bytes(), &log) == nil {
 				if log.Error != "" {
-					return fmt.Errorf(log.Error)
+					return fmt.Errorf(strings.TrimRight(log.Error, "\n"))
 				}
-				s.Logger.Println(log.Stream)
+				s.Logger.Println(strings.TrimRight(log.Stream, "\n"))
 			}
 		}
 		return nil
