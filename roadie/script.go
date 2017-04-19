@@ -35,6 +35,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/template"
 	"time"
@@ -310,10 +311,12 @@ func (s *Script) Start(ctx context.Context) (err error) {
 		return
 	}
 
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
 	config := container.Config{
 		Image: s.InstanceName,
 		Cmd:   strslice.StrSlice{""},
-		Env:   os.Environ(),
+		// Env:   os.Environ(),
 	}
 	host := container.HostConfig{
 		Mounts: []mount.Mount{
@@ -327,6 +330,9 @@ func (s *Script) Start(ctx context.Context) (err error) {
 				Source: "/tmp",
 				Target: "/tmp",
 			},
+		},
+		Resources: container.Resources{
+			Memory: int64(float64(mem.Sys) * 0.95),
 		},
 	}
 	container, err := cli.ContainerCreate(ctx, &config, &host, nil, "")
