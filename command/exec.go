@@ -127,7 +127,28 @@ func (e *Exec) run() (err error) {
 	// Upload results.
 	err = script.UploadResults(ctx, cfg)
 	if err != nil {
-		return
+
+		// If error occurs, refresh the token and retry.
+		var token *auth.Token
+		authorizer := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
+		token, err = authorizer.RefreshToken(&cfg.Token)
+		if err != nil {
+			return
+		}
+
+		cfg.Token = *token
+		storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
+		if err != nil {
+			// If cannot create an interface to storage service, cannot upload
+			// computation results. Thus terminate this computation.
+			return
+		}
+
+		err = script.UploadResults(ctx, cfg)
+		if err != nil {
+			return
+		}
+
 	}
 
 	logger.Println("Finished execution without errors")
