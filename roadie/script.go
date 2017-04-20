@@ -314,7 +314,7 @@ func (s *Script) Start(ctx context.Context) (err error) {
 	config := container.Config{
 		Image: s.InstanceName,
 		Cmd:   strslice.StrSlice{""},
-		// Env:   os.Environ(),
+		Env:   os.Environ(),
 	}
 
 	var cap int64
