@@ -97,24 +97,28 @@ func (e *Exec) run() (err error) {
 	if err != nil {
 		// If cannot read the script file, cannot execute the task;
 		// terminate this computation.
+		logger.Println("Cannot read any script file:", err.Error())
 		return
 	}
 
 	// Prepare source code.
 	err = script.PrepareSourceCode(ctx)
 	if err != nil {
+		logger.Println("Cannot prepare source code:", err.Error())
 		return
 	}
 
 	// Prepare data files.
 	err = script.DownloadDataFiles(ctx)
 	if err != nil {
+		logger.Println("Cannot prepare data files:", err.Error())
 		return
 	}
 
 	// Execute commands.
 	err = script.Build(ctx, ".")
 	if err != nil {
+		logger.Println("Failed to prepare a sandbox container:", err.Error())
 		return
 	}
 	err = script.Start(ctx)
@@ -133,6 +137,7 @@ func (e *Exec) run() (err error) {
 		authorizer := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
 		token, err = authorizer.RefreshToken(&cfg.Token)
 		if err != nil {
+			logger.Println("Failed to refresh a token:", err.Error())
 			return
 		}
 
@@ -141,11 +146,13 @@ func (e *Exec) run() (err error) {
 		if err != nil {
 			// If cannot create an interface to storage service, cannot upload
 			// computation results. Thus terminate this computation.
+			logger.Println("Failed to connect cloud storage:", err.Error())
 			return
 		}
 
 		err = script.UploadResults(ctx, cfg)
 		if err != nil {
+			logger.Println("Failed to upload result files:", err.Error())
 			return
 		}
 
