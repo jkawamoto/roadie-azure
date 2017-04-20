@@ -26,6 +26,7 @@ if [[ $# != 0 ]]; then
   exec $@
 fi
 
+export LC_ALL=C
 {{range $index, $elements := .Run}}
 echo "{{.}}"
 sh -c "{{.}}" > /tmp/stdout{{$index}}.txt
