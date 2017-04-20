@@ -24,8 +24,11 @@
 FROM ubuntu:latest
 MAINTAINER Junpei Kawamoto <kawamoto.junpei@gmail.com>
 
+ENV TERM vt100
+ENV DEBIAN_FRONTEND noninteractive
+
 RUN apt-get update
-RUN apt-get install -y apt-utils git 
+RUN apt-get install -y apt-utils git
 {{range .APT}}
 RUN apt-get install -y {{.}}
 {{end}}

@@ -276,9 +276,10 @@ func (s *Script) Build(ctx context.Context, root string) (err error) {
 			var log buildLog
 			if json.Unmarshal(scanner.Bytes(), &log) == nil {
 				if log.Error != "" {
-					return fmt.Errorf(strings.TrimRight(log.Error, "\n"))
+					return fmt.Errorf(strings.Replace(strings.Replace(log.Error, "\r", "", -1), "\n", " ", -1))
+				} else if log.Stream != "" {
+					s.Logger.Println(strings.Replace(strings.Replace(log.Stream, "\r", "", -1), "\n", " ", -1))
 				}
-				s.Logger.Println(strings.TrimRight(log.Stream, "\n"))
 			}
 		}
 		return nil
@@ -365,7 +366,9 @@ func (s *Script) Start(ctx context.Context) (err error) {
 		defer pipeReader.Close()
 		scanner := bufio.NewScanner(pipeReader)
 		for scanner.Scan() {
-			s.Logger.Println(scanner.Text())
+			for _, line := range strings.Split(scanner.Text(), "\r") {
+				s.Logger.Println(line)
+			}
 		}
 	}()
 	go func() {
