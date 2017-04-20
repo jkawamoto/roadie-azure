@@ -410,6 +410,7 @@ func (s *Script) Start(ctx context.Context) (err error) {
 
 // UploadResults uploads result files.
 func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err error) {
+	dir := strings.TrimPrefix(s.InstanceName, "task-")
 
 	s.Logger.Println("Uploading result files")
 	ctx, cancel := context.WithCancel(ctx)
@@ -436,7 +437,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err
 			url, err := storage.Upload(
 				ctx,
 				azure.ResultContainer,
-				fmt.Sprintf("%s/stdout%v.txt", s.InstanceName, idx),
+				fmt.Sprintf("%s/stdout%v.txt", dir, idx),
 				fp)
 			if err != nil {
 				s.Logger.Printf("Fiald to upload stdout%v.txt\n", idx)
@@ -470,7 +471,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err
 				url, err := storage.Upload(
 					ctx,
 					azure.ResultContainer,
-					fmt.Sprintf("%s/%v", s.InstanceName, name),
+					fmt.Sprintf("%s/%v", dir, name),
 					fp)
 				if err != nil {
 					s.Logger.Println("Cannot upload", name)
