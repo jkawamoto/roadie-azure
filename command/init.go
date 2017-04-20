@@ -58,7 +58,7 @@ func (e *Init) run() (err error) {
 	}
 
 	var logWriter io.WriteCloser
-	storage, err := azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
+	storage, err := azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags|log.LUTC))
 	if err != nil {
 		var token *auth.Token
 		a := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
@@ -69,7 +69,7 @@ func (e *Init) run() (err error) {
 
 		} else {
 			cfg.Token = *token
-			storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
+			storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags|log.LUTC))
 			if err != nil {
 				// If cannot create a storage service, all logs will be lost but should
 				// continue executing this script.
@@ -88,7 +88,7 @@ func (e *Init) run() (err error) {
 		logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name))
 		defer logWriter.Close()
 	}
-	logger := log.New(logWriter, "", log.LstdFlags)
+	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)
 
 	logger.Println("Deleting the config file from the cloud storage")
 	err = storage.Delete(ctx, azure.StartupContainer, e.Config)

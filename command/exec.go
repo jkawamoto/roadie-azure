@@ -66,7 +66,7 @@ func (e *Exec) run() (err error) {
 		}
 
 		cfg.Token = *token
-		storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
+		storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags|log.LUTC))
 		if err != nil {
 			// If cannot create an interface to storage service, cannot upload
 			// computation results. Thus terminate this computation.
@@ -78,7 +78,7 @@ func (e *Exec) run() (err error) {
 	fmt.Println("Creating a logger")
 	logWriter := roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v.log", e.Name))
 	defer logWriter.Close()
-	logger := log.New(logWriter, "", log.LstdFlags)
+	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)
 
 	// Delete the config file and script file from the storage.
 	logger.Println("Deleting the config file from the cloud storage")
