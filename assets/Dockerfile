@@ -25,7 +25,7 @@ FROM ubuntu:latest
 MAINTAINER Junpei Kawamoto <kawamoto.junpei@gmail.com>
 
 RUN apt-get update
-RUN apt-get install -y git
+RUN apt-get install -y apt-utils git 
 {{range .APT}}
 RUN apt-get install -y {{.}}
 {{end}}

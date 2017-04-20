@@ -314,7 +314,7 @@ func (s *Script) Start(ctx context.Context) (err error) {
 	config := container.Config{
 		Image: s.InstanceName,
 		Cmd:   strslice.StrSlice{""},
-		// Env:   os.Environ(),
+		Env:   os.Environ(),
 	}
 
 	var cap int64
@@ -457,9 +457,9 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err
 			name := file
 			eg.Go(func() (err error) {
 				s.Logger.Println("Uploading", name)
-				fp, err := os.Open(v)
+				fp, err := os.Open(name)
 				if err != nil {
-					s.Logger.Println("Cannot find", name)
+					s.Logger.Println("Cannot find", name, ":", err.Error())
 					return
 				}
 				defer fp.Close()
