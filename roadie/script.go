@@ -51,7 +51,14 @@ import (
 	"github.com/jkawamoto/roadie/cloud/azure"
 	"github.com/jkawamoto/roadie/script"
 	"github.com/shirou/gopsutil/mem"
+	"github.com/ulikunitz/xz"
 	yaml "gopkg.in/yaml.v2"
+)
+
+const (
+	// CompressThreshold defines a threshold.
+	// If uploading stdout files exceed this threshold, they will be compressed.
+	CompressThreshold = 1024 * 1024
 )
 
 // Script defines a structure to run commands.
@@ -426,19 +433,40 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err
 
 		idx := i
 		eg.Go(func() (err error) {
+
+			var reader io.Reader
 			s.Logger.Printf("Uploading stdout%v.txt\n", idx)
-			fp, err := os.Open(fmt.Sprintf("/tmp/stdout%v.txt", idx))
+
+			filename := fmt.Sprintf("/tmp/stdout%v.txt", idx)
+			info, err := os.Stat(filename)
+			if err != nil {
+				s.Logger.Println("Cannot find stdout%v.txt\n", idx)
+				return
+			}
+
+			fp, err := os.Open(filename)
 			if err != nil {
 				s.Logger.Printf("Cannot find stdout%v.txt\n", idx)
 				return
 			}
 			defer fp.Close()
+			outfile := fmt.Sprintf("%s/stdout%v.txt", dir, idx)
+			reader = fp
 
-			url, err := storage.Upload(
-				ctx,
-				azure.ResultContainer,
-				fmt.Sprintf("%s/stdout%v.txt", dir, idx),
-				fp)
+			if info.Size() > CompressThreshold {
+
+				var xzReader io.Reader
+				xzReader, err = xz.NewReader(reader)
+				if err != nil {
+					s.Logger.Println("Cannot compress an uploading file:", err.Error())
+				} else {
+					reader = xzReader
+					outfile = fmt.Sprintf("%v.xz", outfile)
+				}
+
+			}
+
+			url, err := storage.Upload(ctx, azure.ResultContainer, outfile, reader)
 			if err != nil {
 				s.Logger.Printf("Fiald to upload stdout%v.txt\n", idx)
 				return
