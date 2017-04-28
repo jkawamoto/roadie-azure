@@ -22,12 +22,9 @@
 package roadie
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -37,20 +34,12 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/strslice"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/jkawamoto/roadie-azure/assets"
 	"github.com/jkawamoto/roadie/cloud/azure"
 	"github.com/jkawamoto/roadie/script"
-	"github.com/shirou/gopsutil/mem"
 	"github.com/ulikunitz/xz"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -67,16 +56,6 @@ const (
 type Script struct {
 	script.Script
 	Logger *log.Logger
-}
-
-// buildLog defines the JSON format of logs from building docker images.
-type buildLog struct {
-	Stream      string
-	Error       string
-	ErrorDetail struct {
-		Code    int
-		Message string
-	}
 }
 
 // NewScript creates a new script from a given named file with a logger.
@@ -231,192 +210,6 @@ func (s *Script) DownloadDataFiles(ctx context.Context) (err error) {
 	return eg.Wait()
 }
 
-// Build builds a docker image to run this script.
-func (s *Script) Build(ctx context.Context, root string) (err error) {
-
-	s.Logger.Println("Building a docker image")
-	if s.InstanceName == "" {
-		s.InstanceName = fmt.Sprintf("roadie-%v", time.Now().Unix())
-	}
-
-	// Create a docker client.
-	cli, err := client.NewClient(client.DefaultDockerHost, "", nil, nil)
-	if err != nil {
-		return
-	}
-	defer cli.Close()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	eg, ctx := errgroup.WithContext(ctx)
-
-	// Create a pipe.
-	reader, writer := io.Pipe()
-
-	// Send the build context.
-	eg.Go(func() error {
-		defer writer.Close()
-		return s.archiveContext(ctx, root, writer)
-	})
-
-	// Start to build an image.
-	res, err := cli.ImageBuild(ctx, reader, types.ImageBuildOptions{
-		Tags:       []string{s.InstanceName},
-		Remove:     true,
-		Dockerfile: ".roadie/Dockerfile",
-	})
-	if err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	// Wait untile the copy ends or the context will be canceled.
-	eg.Go(func() error {
-		defer os.Stdout.Sync()
-
-		scanner := bufio.NewScanner(res.Body)
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			var log buildLog
-			if json.Unmarshal(scanner.Bytes(), &log) == nil {
-				if log.Error != "" {
-					return fmt.Errorf(strings.Replace(strings.Replace(log.Error, "\r", "", -1), "\n", " ", -1))
-				} else if log.Stream != "" {
-					s.Logger.Println(strings.Replace(strings.Replace(log.Stream, "\r", "", -1), "\n", " ", -1))
-				}
-			}
-		}
-		return nil
-	})
-
-	err = eg.Wait()
-	if err != nil {
-		return
-	}
-	s.Logger.Println("Finished building a docker image")
-	return
-
-}
-
-// Start starts a docker container and executes run section of this script.
-func (s *Script) Start(ctx context.Context) (err error) {
-
-	s.Logger.Println("Start executing run tasks")
-
-	// Create a docker client.
-	cli, err := client.NewClient(client.DefaultDockerHost, "", nil, nil)
-	if err != nil {
-		return
-	}
-	defer cli.Close()
-
-	// Create a docker container.
-	wd, err := os.Getwd()
-	if err != nil {
-		return
-	}
-
-	config := container.Config{
-		Image: s.InstanceName,
-		Cmd:   strslice.StrSlice{""},
-		Env:   os.Environ(),
-	}
-
-	var cap int64
-	if v, err2 := mem.VirtualMemory(); err2 != nil {
-		cap = 0
-	} else {
-		cap = int64(float64(v.Total) * 0.95)
-	}
-	host := container.HostConfig{
-		Mounts: []mount.Mount{
-			mount.Mount{
-				Type:   mount.TypeBind,
-				Source: wd,
-				Target: "/data",
-			},
-			mount.Mount{
-				Type:   mount.TypeBind,
-				Source: "/tmp",
-				Target: "/tmp",
-			},
-		},
-		Resources: container.Resources{
-			Memory: cap,
-		},
-	}
-
-	container, err := cli.ContainerCreate(ctx, &config, &host, nil, "")
-	if err != nil {
-		return
-	}
-	// Context ctx may be canceled before removing the container,
-	// and use another context here.
-	defer cli.ContainerRemove(context.Background(), container.ID, types.ContainerRemoveOptions{})
-
-	// Attach stdout and stderr of the container.
-	stream, err := cli.ContainerAttach(ctx, container.ID, types.ContainerAttachOptions{
-		Stream: true,
-		Stdout: true,
-		Stderr: true,
-	})
-	if err != nil {
-		return
-	}
-	defer stream.Close()
-
-	pipeReader, pipeWeiter := io.Pipe()
-	go func() {
-		defer pipeReader.Close()
-		scanner := bufio.NewScanner(pipeReader)
-		for scanner.Scan() {
-			for _, line := range strings.Split(scanner.Text(), "\r") {
-				s.Logger.Println(line)
-			}
-		}
-	}()
-	go func() {
-		defer pipeWeiter.Close()
-		stdcopy.StdCopy(pipeWeiter, pipeWeiter, stream.Reader)
-	}()
-
-	// Start the container.
-	options := types.ContainerStartOptions{}
-	if err = cli.ContainerStart(ctx, container.ID, options); err != nil {
-		return
-	}
-
-	// Wait until the container ends.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-
-		var exit int64
-		exit, err = cli.ContainerWait(ctx, container.ID)
-		if exit != 0 {
-			err = fmt.Errorf("Sandbox container returns an error: %v", exit)
-		}
-
-	}()
-
-	select {
-	case <-ctx.Done():
-		// Kill the running container when the context is canceled.
-		// The context ctx has been canceled already, use another context here.
-		cli.ContainerKill(context.Background(), container.ID, "")
-		return ctx.Err()
-	case <-done:
-		s.Logger.Println("Finished executing run tasks")
-		return
-	}
-
-}
-
 // UploadResults uploads result files.
 func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err error) {
 	dir := strings.TrimPrefix(s.InstanceName, "task-")
@@ -526,7 +319,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err
 }
 
 // dockerfile generates a dockerfile for this script.
-func (s *Script) dockerfile() (res []byte, err error) {
+func (s *Script) Dockerfile() (res []byte, err error) {
 
 	if s.Image == "" {
 		s.Image = DefaultImage
@@ -550,7 +343,7 @@ func (s *Script) dockerfile() (res []byte, err error) {
 }
 
 // entrypoint generates an entrypoint script for this script.
-func (s *Script) entrypoint() (res []byte, err error) {
+func (s *Script) Entrypoint() (res []byte, err error) {
 
 	data, err := assets.Asset("assets/entrypoint.sh")
 	if err != nil {
@@ -565,120 +358,6 @@ func (s *Script) entrypoint() (res []byte, err error) {
 	buf := bytes.NewBuffer(nil)
 	err = temp.Execute(buf, s.Script)
 	res = buf.Bytes()
-	return
-
-}
-
-// archiveContext makes a tar.gz stream consists of files.
-// The generated context stream includes an entrypoint.sh made by entrypoint
-// method.
-func (s *Script) archiveContext(ctx context.Context, root string, writer io.Writer) (err error) {
-
-	// Create a buffered writer.
-	bufWriter := bufio.NewWriter(writer)
-	defer bufWriter.Flush()
-
-	// Create a zipped writer on the bufferd writer.
-	zipWriter, err := gzip.NewWriterLevel(bufWriter, gzip.BestCompression)
-	if err != nil {
-		return
-	}
-	defer zipWriter.Close()
-
-	// Create a tarball writer on the zipped writer.
-	tarWriter := tar.NewWriter(zipWriter)
-	defer tarWriter.Close()
-
-	// Create a tarball.
-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-
-		if err != nil {
-			return err
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		default:
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		// Write a file header.
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		header, err := tar.FileInfoHeader(info, rel)
-		if err != nil {
-			return err
-		}
-		header.Name = rel
-		tarWriter.WriteHeader(header)
-
-		// Write the body.
-		return copyFile(path, tarWriter)
-
-	})
-	if err != nil {
-		return
-	}
-
-	// Append entrypoint.sh to the context stream.
-	entrypoint, err := s.entrypoint()
-	if err != nil {
-		return
-	}
-	err = addFile(tarWriter, ".roadie/entrypoint.sh", entrypoint)
-	if err != nil {
-		return
-	}
-
-	// Append Dockerfile to the context stream.
-	dockerfile, err := s.dockerfile()
-	if err != nil {
-		return
-	}
-	err = addFile(tarWriter, ".roadie/Dockerfile", dockerfile)
-	if err != nil {
-		return
-	}
-
-	return
-
-}
-
-// copyFile opens a given file and put its body to a given writer.
-func copyFile(path string, writer io.Writer) (err error) {
-
-	// Prepare to write a file body.
-	fp, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer fp.Close()
-
-	_, err = io.Copy(writer, fp)
-	return
-
-}
-
-// addFile adds a given data to a given writer of a tar file; the added data
-// will have a given name.
-func addFile(writer *tar.Writer, name string, data []byte) (err error) {
-
-	err = writer.WriteHeader(&tar.Header{
-		Name: name,
-		Mode: 0744,
-		Size: int64(len(data)),
-	})
-	if err != nil {
-		return
-	}
-	_, err = writer.Write(data)
 	return
 
 }

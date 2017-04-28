@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/jkawamoto/roadie-azure/roadie"
 	"github.com/jkawamoto/roadie/cloud/azure"
@@ -126,6 +127,9 @@ func (e *Exec) run() (err error) {
 		logger.Println("Cannot read any script file:", err.Error())
 		return
 	}
+	if script.InstanceName == "" {
+		script.InstanceName = fmt.Sprintf("roadie-%v", time.Now().Unix())
+	}
 
 	// Prepare source code.
 	err = script.PrepareSourceCode(ctx)
@@ -142,12 +146,32 @@ func (e *Exec) run() (err error) {
 	}
 
 	// Execute commands.
-	err = script.Build(ctx, ".")
+	docker, err := roadie.NewDockerClient(logger)
+	if err != nil {
+		logger.Println("Cannot create docker client:", err.Error())
+		return
+	}
+	defer docker.Close()
+	dockerfile, err := script.Dockerfile()
+	if err != nil {
+		logger.Println("Cannot create Dockerfile:", err.Error())
+	}
+	entrypoint, err := script.Entrypoint()
+	if err != nil {
+		logger.Println("Cannot create entrypoint.sh:", err.Error())
+	}
+
+	err = docker.Build(ctx, &roadie.DockerBuildOpt{
+		ImageName:   script.InstanceName,
+		Dockerfile:  dockerfile,
+		Entrypoint:  entrypoint,
+		ContextRoot: ".",
+	})
 	if err != nil {
 		logger.Println("Failed to prepare a sandbox container:", err.Error())
 		return
 	}
-	err = script.Start(ctx)
+	err = docker.Start(ctx, script.InstanceName)
 	if err != nil {
 		// Even if some errors occur, result files need to be uploads;
 		// thus not terminate this computation.
