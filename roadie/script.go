@@ -59,6 +59,8 @@ const (
 	// CompressThreshold defines a threshold.
 	// If uploading stdout files exceed this threshold, they will be compressed.
 	CompressThreshold = 1024 * 1024
+	// DefaultImage defines the default base image of sandbox containers.
+	DefaultImage = "ubuntu:latest"
 )
 
 // Script defines a structure to run commands.
@@ -525,6 +527,10 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err
 
 // dockerfile generates a dockerfile for this script.
 func (s *Script) dockerfile() (res []byte, err error) {
+
+	if s.Image == "" {
+		s.Image = DefaultImage
+	}
 
 	data, err := assets.Asset("assets/Dockerfile")
 	if err != nil {

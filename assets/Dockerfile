@@ -21,7 +21,7 @@
 
 # This template is a dockerfile which installs apt packages.
 #
-FROM ubuntu:latest
+FROM {{.Image}}
 MAINTAINER Junpei Kawamoto <kawamoto.junpei@gmail.com>
 
 ENV TERM vt100
