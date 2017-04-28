@@ -81,7 +81,7 @@ func (e *Init) run() (err error) {
 				fmt.Fprintln(logWriter, "Cannot connect log writer to the cloud storage:", err.Error())
 
 			} else {
-				logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name))
+				logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name), nil)
 				defer logWriter.Close()
 
 			}
@@ -89,7 +89,7 @@ func (e *Init) run() (err error) {
 		}
 
 	} else {
-		logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name))
+		logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name), nil)
 		defer logWriter.Close()
 	}
 	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)

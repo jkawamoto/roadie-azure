@@ -33,6 +33,11 @@ import (
 	"github.com/urfave/cli"
 )
 
+const (
+	// DebugFile defines the name of temporal files.
+	DebugFile = "stderr.txt"
+)
+
 // Exec defines arguments used in exec command.
 type Exec struct {
 	Config string
@@ -54,8 +59,29 @@ func (e *Exec) run() (err error) {
 		return
 	}
 
+	// Prepare a file to store debugging data.
+	stderr, err := os.Create(DebugFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot create a debugging file")
+		stderr = os.Stderr
+	}
+	defer func() (err error) {
+		stderr.Close()
+		bg := context.Background()
+		if storage, err := azure.NewStorageService(bg, cfg, nil); err == nil {
+			if fp, err := os.Open(DebugFile); err != nil {
+				defer fp.Close()
+				storage.UploadWithMetadata(bg, azure.LogContainer, fmt.Sprintf("%v-debug.log", e.Name), fp, map[string]string{
+					"Content-Type": "text/plain",
+				})
+			}
+		}
+		return
+	}()
+	debugLogger := log.New(stderr, "", log.LstdFlags|log.Lshortfile|log.LUTC)
+
 	fmt.Println("Creating a storage service")
-	storage, err := azure.NewStorageService(ctx, cfg, nil)
+	storage, err := azure.NewStorageService(ctx, cfg, debugLogger)
 	if err != nil {
 
 		var token *auth.Token
@@ -66,7 +92,7 @@ func (e *Exec) run() (err error) {
 		}
 
 		cfg.Token = *token
-		storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags|log.LUTC))
+		storage, err = azure.NewStorageService(ctx, cfg, debugLogger)
 		if err != nil {
 			// If cannot create an interface to storage service, cannot upload
 			// computation results. Thus terminate this computation.
@@ -76,7 +102,7 @@ func (e *Exec) run() (err error) {
 	}
 
 	fmt.Println("Creating a logger")
-	logWriter := roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v.log", e.Name))
+	logWriter := roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v.log", e.Name), stderr)
 	defer logWriter.Close()
 	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)
 
@@ -158,7 +184,6 @@ func (e *Exec) run() (err error) {
 
 	}
 
-	logger.Println("Finished execution without errors")
 	return
 
 }
