@@ -37,7 +37,7 @@ import (
 func TestDockerfile(t *testing.T) {
 
 	script := Script{
-		Script: script.Script{
+		Script: &script.Script{
 			APT: []string{
 				"python-numpy",
 				"python-scipy",
@@ -60,7 +60,7 @@ func TestDockerfile(t *testing.T) {
 func TestEntrypoint(t *testing.T) {
 
 	script := Script{
-		Script: script.Script{
+		Script: &script.Script{
 			Run: []string{
 				"cmd1",
 				"cmd2",
@@ -93,7 +93,7 @@ func TestDownloadDataFiles(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	script := Script{
-		Script: script.Script{
+		Script: &script.Script{
 			Data: []string{
 				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v", dir),
 				fmt.Sprintf("https://github.com/jkawamoto/roadie-gcp/archive/v0.9.4.tar.gz:%v", dir),

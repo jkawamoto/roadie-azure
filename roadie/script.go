@@ -27,7 +27,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -41,7 +40,6 @@ import (
 	"github.com/jkawamoto/roadie/cloud/azure"
 	"github.com/jkawamoto/roadie/script"
 	"github.com/ulikunitz/xz"
-	yaml "gopkg.in/yaml.v2"
 )
 
 const (
@@ -54,23 +52,19 @@ const (
 
 // Script defines a structure to run commands.
 type Script struct {
-	script.Script
+	*script.Script
 	Logger *log.Logger
 }
 
 // NewScript creates a new script from a given named file with a logger.
 func NewScript(filename string, logger *log.Logger) (res *Script, err error) {
 
-	data, err := ioutil.ReadFile(filename)
+	res = new(Script)
+	res.Script, err = script.NewScript(filename)
 	if err != nil {
 		return
 	}
 
-	res = new(Script)
-	err = yaml.Unmarshal(data, &res.Script)
-	if err != nil {
-		return
-	}
 	res.Logger = logger
 	return
 
