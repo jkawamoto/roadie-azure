@@ -22,12 +22,8 @@
 package roadie
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -36,13 +32,12 @@ import (
 	"testing"
 
 	"github.com/jkawamoto/roadie/script"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestDockerfile(t *testing.T) {
 
 	script := Script{
-		Script: script.Script{
+		Script: &script.Script{
 			APT: []string{
 				"python-numpy",
 				"python-scipy",
@@ -50,7 +45,7 @@ func TestDockerfile(t *testing.T) {
 		},
 	}
 
-	buf, err := script.dockerfile()
+	buf, err := script.Dockerfile()
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -65,7 +60,7 @@ func TestDockerfile(t *testing.T) {
 func TestEntrypoint(t *testing.T) {
 
 	script := Script{
-		Script: script.Script{
+		Script: &script.Script{
 			Run: []string{
 				"cmd1",
 				"cmd2",
@@ -73,7 +68,7 @@ func TestEntrypoint(t *testing.T) {
 		},
 	}
 
-	buf, err := script.entrypoint()
+	buf, err := script.Entrypoint()
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -89,115 +84,6 @@ func TestEntrypoint(t *testing.T) {
 
 }
 
-func TestArchiveContext(t *testing.T) {
-
-	var err error
-	script := Script{
-		Script: script.Script{
-			Run: []string{
-				"cmd1",
-				"cmd2",
-			},
-		},
-	}
-
-	reader, writer := io.Pipe()
-	eg, ctx := errgroup.WithContext(context.Background())
-
-	eg.Go(func() error {
-		defer writer.Close()
-		return script.archiveContext(ctx, "../data", writer)
-	})
-
-	res := make(map[string]struct{})
-	eg.Go(func() (err error) {
-
-		zipReader, err := gzip.NewReader(reader)
-		if err != nil {
-			return
-		}
-		tarReader := tar.NewReader(zipReader)
-
-		var header *tar.Header
-		for {
-			header, err = tarReader.Next()
-			if err == io.EOF {
-				break
-			} else if err != nil {
-				return
-			}
-			res[header.Name] = struct{}{}
-		}
-		return nil
-
-	})
-
-	err = eg.Wait()
-	if err != nil {
-		t.Error(err.Error())
-	}
-
-	if _, exist := res[".roadie/entrypoint.sh"]; !exist {
-		t.Error("entrypoint.sh does not exist in the context stream")
-	}
-	if _, exist := res[".roadie/Dockerfile"]; !exist {
-		t.Error("Dockerfile does not exist in the context stream")
-	}
-	if _, exist := res["abc.txt"]; !exist {
-		t.Error("abc.txt does not exist in the context stream")
-	}
-	if _, exist := res["folder/def.txt"]; !exist {
-		t.Error("folder/def.txt does not exist in the context stream")
-	}
-
-}
-
-func TestDocker(t *testing.T) {
-	t.SkipNow()
-
-	buf := bytes.NewBuffer(nil)
-	logger := log.New(buf, "", log.LstdFlags)
-	script := Script{
-		Script: script.Script{
-			APT: []string{
-				"python-numpy",
-				"python-scipy",
-			},
-			Run: []string{
-				"./cmd.sh",
-			},
-		},
-		Logger: logger,
-	}
-
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-	err = os.Chdir("../data")
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-	defer os.Chdir(wd)
-
-	ctx := context.Background()
-	err = script.Build(ctx, ".")
-	if err != nil {
-		t.Error(err.Error())
-	}
-
-	err = script.Start(ctx)
-	if err != nil {
-		t.Error(err.Error())
-	}
-
-	res := buf.String()
-	if !strings.Contains(res, "abc") {
-		t.Error("Outputted result is not correct:", res)
-	}
-
-}
-
 func TestDownloadDataFiles(t *testing.T) {
 
 	dir, err := ioutil.TempDir("", "TestDownloadDataFiles")
@@ -207,7 +93,7 @@ func TestDownloadDataFiles(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	script := Script{
-		Script: script.Script{
+		Script: &script.Script{
 			Data: []string{
 				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v", dir),
 				fmt.Sprintf("https://github.com/jkawamoto/roadie-gcp/archive/v0.9.4.tar.gz:%v", dir),

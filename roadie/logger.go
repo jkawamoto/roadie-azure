@@ -25,7 +25,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/jkawamoto/roadie/cloud/azure"
 )
@@ -43,7 +42,7 @@ func (w *pipedWriter) Close() (err error) {
 
 // NewLogWriter creates a new writer which writes messages to a given named
 // file in the cloud storage.
-func NewLogWriter(ctx context.Context, storage *azure.StorageService, name string) (writer io.WriteCloser) {
+func NewLogWriter(ctx context.Context, storage *azure.StorageService, name string, debug io.Writer) (writer io.WriteCloser) {
 
 	reader, writer := io.Pipe()
 	done := make(chan struct{}, 1)
@@ -54,7 +53,9 @@ func NewLogWriter(ctx context.Context, storage *azure.StorageService, name strin
 			"Content-Type": "text/plain",
 		})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
+			if debug != nil {
+				fmt.Fprintln(debug, err.Error())
+			}
 		}
 		close(done)
 	}()

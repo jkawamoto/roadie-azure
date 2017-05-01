@@ -26,10 +26,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jkawamoto/roadie-azure/assets"
 	"github.com/jkawamoto/roadie-azure/roadie"
@@ -77,7 +81,7 @@ func (e *Init) run() (err error) {
 				fmt.Fprintln(logWriter, "Cannot connect log writer to the cloud storage:", err.Error())
 
 			} else {
-				logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name))
+				logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name), nil)
 				defer logWriter.Close()
 
 			}
@@ -85,7 +89,7 @@ func (e *Init) run() (err error) {
 		}
 
 	} else {
-		logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name))
+		logWriter = roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v-init.log", e.Name), nil)
 		defer logWriter.Close()
 	}
 	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)
@@ -104,30 +108,30 @@ func (e *Init) run() (err error) {
 		return
 	}
 
+	wg := new(errgroup.Group)
+
 	logger.Println("Configurating this job")
 	cmd := exec.CommandContext(ctx, filename)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		logger.Println("Cannot read stdout of the init script:", err.Error())
+		stdout = ioutil.NopCloser(nil)
 	} else {
-		go func() {
-			s := bufio.NewScanner(stdout)
-			for s.Scan() {
-				logger.Println(s.Text())
-			}
-		}()
+		wg.Go(func() error {
+			return copyText(stdout, logger)
+		})
+		defer stdout.Close()
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		logger.Println("Cannot read stderr of the init script:", err.Error())
+		stderr = ioutil.NopCloser(nil)
 	} else {
-		go func() {
-			s := bufio.NewScanner(stderr)
-			for s.Scan() {
-				logger.Println(s.Text())
-			}
-		}()
+		wg.Go(func() error {
+			return copyText(stderr, logger)
+		})
+		defer stderr.Close()
 	}
 
 	err = cmd.Start()
@@ -135,11 +139,14 @@ func (e *Init) run() (err error) {
 		err = cmd.Wait()
 	}
 	if err != nil {
-		logger.Println("Cannot finish configurating the job")
+		logger.Println("Cannot finish configurating the job", err.Error())
 	} else {
 		logger.Println("Finished configurating this job")
 	}
-	return
+
+	stdout.Close()
+	stderr.Close()
+	return wg.Wait()
 
 }
 
@@ -179,5 +186,18 @@ func createInitScript(filename string) (err error) {
 
 	_, err = writer.Write(data)
 	return
+
+}
+
+// copyText scanns lines from a reader and writes it to a logger.
+func copyText(reader io.Reader, logger *log.Logger) error {
+
+	s := bufio.NewScanner(reader)
+	for s.Scan() {
+		for _, line := range strings.Split(s.Text(), "\r") {
+			logger.Println(line)
+		}
+	}
+	return s.Err()
 
 }

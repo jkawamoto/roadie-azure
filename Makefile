@@ -37,6 +37,7 @@ release:
 
 get-deps:
 	go get -d -t -v .
+	go get -u github.com/jteeuwen/go-bindata/...
 
 test:
 	go test -v ./...

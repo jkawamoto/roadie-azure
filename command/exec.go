@@ -26,11 +26,18 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
+	"github.com/docker/docker/api/types/mount"
 	"github.com/jkawamoto/roadie-azure/roadie"
 	"github.com/jkawamoto/roadie/cloud/azure"
 	"github.com/jkawamoto/roadie/cloud/azure/auth"
 	"github.com/urfave/cli"
+)
+
+const (
+	// DebugFile defines the name of temporal files.
+	DebugFile = "stderr.txt"
 )
 
 // Exec defines arguments used in exec command.
@@ -54,8 +61,29 @@ func (e *Exec) run() (err error) {
 		return
 	}
 
+	// Prepare a file to store debugging data.
+	stderr, err := os.Create(DebugFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot create a debugging file")
+		stderr = os.Stderr
+	}
+	defer func() (err error) {
+		stderr.Close()
+		bg := context.Background()
+		if storage, err := azure.NewStorageService(bg, cfg, nil); err == nil {
+			if fp, err := os.Open(DebugFile); err != nil {
+				defer fp.Close()
+				storage.UploadWithMetadata(bg, azure.LogContainer, fmt.Sprintf("%v-debug.log", e.Name), fp, map[string]string{
+					"Content-Type": "text/plain",
+				})
+			}
+		}
+		return
+	}()
+	debugLogger := log.New(stderr, "", log.LstdFlags|log.Lshortfile|log.LUTC)
+
 	fmt.Println("Creating a storage service")
-	storage, err := azure.NewStorageService(ctx, cfg, nil)
+	storage, err := azure.NewStorageService(ctx, cfg, debugLogger)
 	if err != nil {
 
 		var token *auth.Token
@@ -66,7 +94,7 @@ func (e *Exec) run() (err error) {
 		}
 
 		cfg.Token = *token
-		storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags|log.LUTC))
+		storage, err = azure.NewStorageService(ctx, cfg, debugLogger)
 		if err != nil {
 			// If cannot create an interface to storage service, cannot upload
 			// computation results. Thus terminate this computation.
@@ -76,7 +104,7 @@ func (e *Exec) run() (err error) {
 	}
 
 	fmt.Println("Creating a logger")
-	logWriter := roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v.log", e.Name))
+	logWriter := roadie.NewLogWriter(ctx, storage, fmt.Sprintf("%v.log", e.Name), stderr)
 	defer logWriter.Close()
 	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)
 
@@ -100,6 +128,9 @@ func (e *Exec) run() (err error) {
 		logger.Println("Cannot read any script file:", err.Error())
 		return
 	}
+	if script.InstanceName == "" {
+		script.InstanceName = fmt.Sprintf("roadie-%v", time.Now().Unix())
+	}
 
 	// Prepare source code.
 	err = script.PrepareSourceCode(ctx)
@@ -116,12 +147,48 @@ func (e *Exec) run() (err error) {
 	}
 
 	// Execute commands.
-	err = script.Build(ctx, ".")
+	docker, err := roadie.NewDockerClient(logger)
+	if err != nil {
+		logger.Println("Cannot create docker client:", err.Error())
+		return
+	}
+	defer docker.Close()
+	dockerfile, err := script.Dockerfile()
+	if err != nil {
+		logger.Println("Cannot create Dockerfile:", err.Error())
+	}
+	entrypoint, err := script.Entrypoint()
+	if err != nil {
+		logger.Println("Cannot create entrypoint.sh:", err.Error())
+	}
+
+	err = docker.Build(ctx, &roadie.DockerBuildOpt{
+		ImageName:  script.InstanceName,
+		Dockerfile: dockerfile,
+		Entrypoint: entrypoint,
+	})
 	if err != nil {
 		logger.Println("Failed to prepare a sandbox container:", err.Error())
 		return
 	}
-	err = script.Start(ctx)
+
+	wd, err := os.Getwd()
+	if err != nil {
+		logger.Println("Cannot get the working directory:", err.Error())
+		return
+	}
+	err = docker.Start(ctx, script.InstanceName, []mount.Mount{
+		mount.Mount{
+			Type:   mount.TypeBind,
+			Source: wd,
+			Target: "/data",
+		},
+		mount.Mount{
+			Type:   mount.TypeBind,
+			Source: "/tmp",
+			Target: "/tmp",
+		},
+	})
 	if err != nil {
 		// Even if some errors occur, result files need to be uploads;
 		// thus not terminate this computation.
@@ -158,7 +225,6 @@ func (e *Exec) run() (err error) {
 
 	}
 
-	logger.Println("Finished execution without errors")
 	return
 
 }
