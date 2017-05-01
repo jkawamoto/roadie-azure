@@ -28,6 +28,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/docker/docker/api/types/mount"
 	"github.com/jkawamoto/roadie-azure/roadie"
 	"github.com/jkawamoto/roadie/cloud/azure"
 	"github.com/jkawamoto/roadie/cloud/azure/auth"
@@ -162,16 +163,32 @@ func (e *Exec) run() (err error) {
 	}
 
 	err = docker.Build(ctx, &roadie.DockerBuildOpt{
-		ImageName:   script.InstanceName,
-		Dockerfile:  dockerfile,
-		Entrypoint:  entrypoint,
-		ContextRoot: ".",
+		ImageName:  script.InstanceName,
+		Dockerfile: dockerfile,
+		Entrypoint: entrypoint,
 	})
 	if err != nil {
 		logger.Println("Failed to prepare a sandbox container:", err.Error())
 		return
 	}
-	err = docker.Start(ctx, script.InstanceName)
+
+	wd, err := os.Getwd()
+	if err != nil {
+		logger.Println("Cannot get the working directory:", err.Error())
+		return
+	}
+	err = docker.Start(ctx, script.InstanceName, []mount.Mount{
+		mount.Mount{
+			Type:   mount.TypeBind,
+			Source: wd,
+			Target: "/data",
+		},
+		mount.Mount{
+			Type:   mount.TypeBind,
+			Source: "/tmp",
+			Target: "/tmp",
+		},
+	})
 	if err != nil {
 		// Even if some errors occur, result files need to be uploads;
 		// thus not terminate this computation.

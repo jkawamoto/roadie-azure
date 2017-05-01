@@ -137,9 +137,11 @@ func (d *DockerClient) Build(ctx context.Context, opt *DockerBuildOpt) (err erro
 			if json.Unmarshal(scanner.Bytes(), &output) == nil {
 				switch {
 				case output.Error != "":
-					return fmt.Errorf(formatOutput(output.Error))
+					return fmt.Errorf(output.Error)
 				case output.Stream != "":
-					d.Logger.Println(formatOutput(output.Stream))
+					for _, v := range formatOutput(output.Stream) {
+						d.Logger.Println(v)
+					}
 				}
 			}
 		}
@@ -156,16 +158,11 @@ func (d *DockerClient) Build(ctx context.Context, opt *DockerBuildOpt) (err erro
 }
 
 // Start starts a docker container and executes run section of this script.
-func (d *DockerClient) Start(ctx context.Context, image string) (err error) {
+func (d *DockerClient) Start(ctx context.Context, image string, mounts []mount.Mount) (err error) {
 
 	d.Logger.Println("Start a sandbox container")
 
 	// Create a docker container.
-	wd, err := os.Getwd()
-	if err != nil {
-		return
-	}
-
 	config := container.Config{
 		Image: image,
 		Env:   os.Environ(),
@@ -178,18 +175,7 @@ func (d *DockerClient) Start(ctx context.Context, image string) (err error) {
 		cap = int64(float64(v.Total) * 0.95)
 	}
 	host := container.HostConfig{
-		Mounts: []mount.Mount{
-			mount.Mount{
-				Type:   mount.TypeBind,
-				Source: wd,
-				Target: "/data",
-			},
-			mount.Mount{
-				Type:   mount.TypeBind,
-				Source: "/tmp",
-				Target: "/tmp",
-			},
-		},
+		Mounts: mounts,
 		Resources: container.Resources{
 			Memory: cap,
 		},
@@ -281,46 +267,50 @@ func archiveContext(ctx context.Context, writer io.Writer, opt *DockerBuildOpt) 
 	defer tarWriter.Close()
 
 	// Create a tarball.
-	err = filepath.Walk(opt.ContextRoot, func(path string, info os.FileInfo, err error) error {
+	if opt.ContextRoot != "" {
+		err = filepath.Walk(opt.ContextRoot, func(path string, info os.FileInfo, err error) error {
 
+			if err != nil {
+				return err
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			// Write a file header.
+			rel, err := filepath.Rel(opt.ContextRoot, path)
+			if err != nil {
+				return err
+			}
+			header, err := tar.FileInfoHeader(info, rel)
+			if err != nil {
+				return err
+			}
+			header.Name = rel
+			tarWriter.WriteHeader(header)
+
+			// Write the body.
+			return copyFile(path, tarWriter)
+
+		})
 		if err != nil {
-			return err
+			return
 		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		// Write a file header.
-		rel, err := filepath.Rel(opt.ContextRoot, path)
-		if err != nil {
-			return err
-		}
-		header, err := tar.FileInfoHeader(info, rel)
-		if err != nil {
-			return err
-		}
-		header.Name = rel
-		tarWriter.WriteHeader(header)
-
-		// Write the body.
-		return copyFile(path, tarWriter)
-
-	})
-	if err != nil {
-		return
 	}
 
 	// Append entrypoint.sh to the context stream.
-	err = addFile(tarWriter, ".roadie/entrypoint.sh", opt.Entrypoint)
-	if err != nil {
-		return
+	if opt.Entrypoint != nil {
+		err = addFile(tarWriter, ".roadie/entrypoint.sh", opt.Entrypoint)
+		if err != nil {
+			return
+		}
 	}
 
 	// Append Dockerfile to the context stream.
@@ -365,7 +355,16 @@ func addFile(writer *tar.Writer, name string, data []byte) (err error) {
 
 }
 
-// formatOutput replaces new lines to spaces.
-func formatOutput(str string) string {
-	return strings.Replace(strings.Replace(str, "\r", "", -1), "\n", " ", -1)
+// formatOutput parse multi line messages.
+func formatOutput(str string) (res []string) {
+
+	for _, v := range strings.Split(str, "\r") {
+		for _, u := range strings.Split(v, "\n") {
+			if u != "" {
+				res = append(res, u)
+			}
+		}
+	}
+	return
+
 }
