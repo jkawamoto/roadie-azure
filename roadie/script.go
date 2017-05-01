@@ -205,8 +205,8 @@ func (s *Script) DownloadDataFiles(ctx context.Context) (err error) {
 }
 
 // UploadResults uploads result files.
-func (s *Script) UploadResults(ctx context.Context, cfg *azure.AzureConfig) (err error) {
-	dir := strings.TrimPrefix(s.InstanceName, "task-")
+func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err error) {
+	dir := strings.TrimPrefix(s.Name, "task-")
 
 	s.Logger.Println("Uploading result files")
 	ctx, cancel := context.WithCancel(ctx)

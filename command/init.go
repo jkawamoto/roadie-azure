@@ -54,7 +54,7 @@ func (e *Init) run() (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg, err := azure.NewAzureConfigFromFile(e.Config)
+	cfg, err := azure.NewConfigFromFile(e.Config)
 	if err != nil {
 		// If cannot read the given config file, cannot upload computation results.
 		// Thus, terminate the computation.

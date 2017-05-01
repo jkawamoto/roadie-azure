@@ -54,7 +54,7 @@ func (e *Exec) run() (err error) {
 	defer cancel()
 
 	fmt.Println("Reading config")
-	cfg, err := azure.NewAzureConfigFromFile(e.Config)
+	cfg, err := azure.NewConfigFromFile(e.Config)
 	if err != nil {
 		// If cannot read the given config file, cannot upload computation results.
 		// Thus, terminate the computation.
@@ -128,8 +128,8 @@ func (e *Exec) run() (err error) {
 		logger.Println("Cannot read any script file:", err.Error())
 		return
 	}
-	if script.InstanceName == "" {
-		script.InstanceName = fmt.Sprintf("roadie-%v", time.Now().Unix())
+	if script.Name == "" {
+		script.Name = fmt.Sprintf("roadie-%v", time.Now().Unix())
 	}
 
 	// Prepare source code.
@@ -163,7 +163,7 @@ func (e *Exec) run() (err error) {
 	}
 
 	err = docker.Build(ctx, &roadie.DockerBuildOpt{
-		ImageName:  script.InstanceName,
+		ImageName:  script.Name,
 		Dockerfile: dockerfile,
 		Entrypoint: entrypoint,
 	})
@@ -177,7 +177,7 @@ func (e *Exec) run() (err error) {
 		logger.Println("Cannot get the working directory:", err.Error())
 		return
 	}
-	err = docker.Start(ctx, script.InstanceName, []mount.Mount{
+	err = docker.Start(ctx, script.Name, []mount.Mount{
 		mount.Mount{
 			Type:   mount.TypeBind,
 			Source: wd,
