@@ -3,7 +3,7 @@
 //
 // Copyright (c) 2017 Junpei Kawamoto
 //
-// This file is part of Roadie Azure.
+// This file is part of Roadie .
 //
 // Roadie Azure is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -87,7 +87,7 @@ func (e *Exec) run() (err error) {
 	if err != nil {
 
 		var token *auth.Token
-		authorizer := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
+		authorizer := auth.NewManualAuthorizer(cfg.TenantID, ClientID, nil, "renew")
 		token, err = authorizer.RefreshToken(&cfg.Token)
 		if err != nil {
 			return
@@ -201,7 +201,7 @@ func (e *Exec) run() (err error) {
 
 		// If error occurs, refresh the token and retry.
 		var token *auth.Token
-		authorizer := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
+		authorizer := auth.NewManualAuthorizer(cfg.TenantID, ClientID, nil, "renew")
 		token, err = authorizer.RefreshToken(&cfg.Token)
 		if err != nil {
 			logger.Println("Failed to refresh a token:", err.Error())

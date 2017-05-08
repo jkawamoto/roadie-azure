@@ -65,7 +65,7 @@ func (e *Init) run() (err error) {
 	storage, err := azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags|log.LUTC))
 	if err != nil {
 		var token *auth.Token
-		a := auth.NewManualAuthorizer(cfg.TenantID, cfg.ClientID, nil, "renew")
+		a := auth.NewManualAuthorizer(cfg.TenantID, ClientID, nil, "renew")
 		token, err = a.RefreshToken(&cfg.Token)
 		if err != nil {
 			logWriter = os.Stderr
