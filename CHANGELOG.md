@@ -1,3 +1,8 @@
+## 0.3.3 (2017-06-19)
+### Fixed
+* Follow the update of docker client library.
+
+
 ## 0.3.2 (2017-05-08)
 ### Fixed
 * Follow [Roadie](https://jkawamoto.github.io/roadie/)'s update, Azure's config doesn't have client ID.
