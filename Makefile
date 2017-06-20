@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with Roadie Azure.  If not, see <http:#www.gnu.org/licenses/>.
 #
-VERSION = snapshot
+VERSION := $(shell git describe --abbrev=0 --tags)
 default: build
 .PHONY: asset build release get-deps test
 
@@ -26,14 +26,14 @@ asset:
 	rm assets/assets.go
 	go-bindata -pkg assets -o assets/assets.go -nometadata assets/*
 
-build:
+build: asset
 	mkdir -p pkg/$(VERSION)/roadie-azure_linux_amd64
 	GOOS=linux GOARCH=amd64 go build -o pkg/$(VERSION)/roadie-azure_linux_amd64/roadie-azure
 	cd pkg/$(VERSION) && tar -zcvf roadie-azure_linux_amd64.tar.gz roadie-azure_linux_amd64
 	rm -r pkg/$(VERSION)/roadie-azure_linux_amd64
 
-release:
-	ghr -u jkawamoto  v$(VERSION) pkg/$(VERSION)
+release: build
+	ghr -u jkawamoto v$(VERSION) pkg/$(VERSION)
 
 get-deps:
 	go get -d -t -v .
