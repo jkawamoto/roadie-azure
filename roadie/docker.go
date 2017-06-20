@@ -181,16 +181,16 @@ func (d *DockerClient) Start(ctx context.Context, image string, mounts []mount.M
 		},
 	}
 
-	container, err := d.client.ContainerCreate(ctx, &config, &host, nil, "")
+	c, err := d.client.ContainerCreate(ctx, &config, &host, nil, "")
 	if err != nil {
 		return
 	}
 	// Context ctx may be canceled before removing the container,
 	// and use another context here.
-	defer d.client.ContainerRemove(context.Background(), container.ID, types.ContainerRemoveOptions{})
+	defer d.client.ContainerRemove(context.Background(), c.ID, types.ContainerRemoveOptions{})
 
 	// Attach stdout and stderr of the container.
-	stream, err := d.client.ContainerAttach(ctx, container.ID, types.ContainerAttachOptions{
+	stream, err := d.client.ContainerAttach(ctx, c.ID, types.ContainerAttachOptions{
 		Stream: true,
 		Stdout: true,
 		Stderr: true,
@@ -217,31 +217,28 @@ func (d *DockerClient) Start(ctx context.Context, image string, mounts []mount.M
 
 	// Start the container.
 	options := types.ContainerStartOptions{}
-	if err = d.client.ContainerStart(ctx, container.ID, options); err != nil {
+	if err = d.client.ContainerStart(ctx, c.ID, options); err != nil {
 		return
 	}
 
-	// Wait until the container ends.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-
-		var exit int64
-		exit, err = d.client.ContainerWait(ctx, container.ID)
-		if exit != 0 {
-			err = fmt.Errorf("Sandbox container returns an error: %v", exit)
-		}
-
-	}()
-
+	exit, errCh := d.client.ContainerWait(ctx, c.ID, container.WaitConditionNotRunning)
 	select {
 	case <-ctx.Done():
 		// Kill the running container when the context is canceled.
 		// The context ctx has been canceled already, use another context here.
-		d.client.ContainerKill(context.Background(), container.ID, "")
+		d.client.ContainerKill(context.Background(), c.ID, "")
 		return ctx.Err()
-	case <-done:
-		d.Logger.Println("Sandbox container ends")
+	case err = <-errCh:
+		// Kill the running container when the context is canceled.
+		// The context ctx has been canceled already, use another context here.
+		d.client.ContainerKill(context.Background(), c.ID, "")
+		return
+	case status := <-exit:
+		if status.StatusCode != 0 {
+			err = fmt.Errorf("Sandbox container returns an error: %v", status.StatusCode)
+		} else {
+			d.Logger.Println("Sandbox container ends")
+		}
 		return
 	}
 
