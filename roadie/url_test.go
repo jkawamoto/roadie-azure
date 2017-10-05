@@ -23,46 +23,71 @@ package roadie
 
 import (
 	"context"
-	"strings"
+	"net/url"
 	"testing"
 )
 
 func TestOpenURL(t *testing.T) {
 
-	obj, err := OpenURL(context.Background(), "dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa")
-	if err != nil {
-		t.Fatal(err.Error())
+	cases := []struct {
+		url  string
+		dest string
+		name string
+	}{
+		// Dropbox URL without destinations.
+		{"dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa", "", "testing.zip"},
+		// Dropbox URL with a destination.
+		{"dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:/tmp/", "/tmp", "testing.zip"},
+		// Dropbox URL with renaming.
+		{"dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:/tmp/some.zip", "/tmp", "some.zip"},
+		// HTTP URL without destinations.
+		{"https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md", "", "README.md"},
+		// HTTP URL with a destination.
+		{"https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md:/tmp/", "/tmp", "README.md"},
+		// HTTP URL with renaming.
+		{"https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md:/tmp/README2.md", "/tmp", "README2.md"},
 	}
-	defer obj.Body.Close()
-	if !strings.HasSuffix(obj.Name, ".zip") {
-		t.Error("Returned object doesn't have correct name:", obj.Name)
-	}
-	if obj.Name != obj.Dest {
-		t.Error("Returned destination is not correct:", obj.Dest)
+
+	for _, c := range cases {
+
+		t.Run(c.url, func(t *testing.T) {
+
+			obj, err := OpenURL(context.Background(), c.url)
+			if err != nil {
+				t.Fatalf("OpenURL returns an error: %v", err)
+			}
+			defer obj.Body.Close()
+
+			if obj.Dest != c.dest {
+				t.Errorf("destination is %q, want %q", obj.Dest, c.dest)
+			}
+			if obj.Name != c.name {
+				t.Errorf("name %q, want %q", obj.Name, c.name)
+			}
+
+		})
+
 	}
 
 }
 
 func TestExpandDropboxURL(t *testing.T) {
 
-	res := expandDropboxURL("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa")
-	if res != "https://www.dropbox.com/sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa?dl=1" {
-		t.Error("Returned URL is not correct:", res)
+	input := "dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa"
+	expect := "https://www.dropbox.com/sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa?dl=1"
+
+	loc, err := url.Parse(input)
+	if err != nil {
+		t.Fatalf("cannot parse a URL: %v", err)
 	}
+	res := expandDropboxURL(loc)
 
-}
-
-func TestSplitURL(t *testing.T) {
-
-	var lhs, rhs string
-	lhs, rhs = splitURL("http://www.sample.com/somefile")
-	if lhs != "http://www.sample.com/somefile" || rhs != "" {
-		t.Errorf("Split urls are not correct: %s, %s", lhs, rhs)
+	expectURL, err := url.Parse(expect)
+	if err != nil {
+		t.Fatalf("cannot parse a URL: %v", err)
 	}
-
-	lhs, rhs = splitURL("http://www.sample.com/somefile:/pass/to/new")
-	if lhs != "http://www.sample.com/somefile" || rhs != "/pass/to/new" {
-		t.Errorf("Split urls are not correct: %s, %s", lhs, rhs)
+	if res.String() != expectURL.String() {
+		t.Errorf("expaned URL is %v, want %v", res, expectURL)
 	}
 
 }
