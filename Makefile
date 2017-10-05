@@ -22,7 +22,7 @@ VERSION := $(shell git describe --abbrev=0 --tags)
 default: build
 .PHONY: asset build release get-deps test
 
-asset:
+asset: get-deps
 	rm assets/assets.go
 	go-bindata -pkg assets -o assets/assets.go -nometadata assets/*
 
@@ -39,5 +39,5 @@ get-deps:
 	go get -d -t -v .
 	go get -u github.com/jteeuwen/go-bindata/...
 
-test:
+test: asset
 	go test -v ./... -tags dummy
