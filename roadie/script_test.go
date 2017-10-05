@@ -203,12 +203,12 @@ func TestPrepareSourceCode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PrepareSourceCode returns an error: %v", err)
 		}
-		_, err = os.Stat("roadie")
+		_, err = os.Stat("roadie-azure_linux_amd64/roadie-azure")
 		if err != nil {
-			t.Errorf("download source files don't have executable file %q", "roadie")
+			t.Errorf("download source files don't have executable file %q", "roadie-azure_linux_amd64/roadie-azure")
 		}
 		if t.Failed() {
-			data, _ := exec.Command("ls", "-la").Output()
+			data, _ := exec.Command("ls", "-la", "roadie-azure_linux_amd64").Output()
 			t.Log(string(data))
 		}
 	})
