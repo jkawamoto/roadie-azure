@@ -317,34 +317,49 @@ func TestPrepareSourceCode(t *testing.T) {
 
 func TestDownloadDataFiles(t *testing.T) {
 
-	dir, err := ioutil.TempDir("", "TestDownloadDataFiles")
+	dir, err := ioutil.TempDir("", "")
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot create a temporary directory: %v", err)
 	}
 	defer os.RemoveAll(dir)
 
 	script := Script{
 		Script: &script.Script{
 			Data: []string{
-				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v", dir),
-				fmt.Sprintf("https://github.com/jkawamoto/roadie-gcp/archive/v0.9.4.tar.gz:%v", dir),
+				// Archived file from Dropbox with a destination.
+				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v/", dir),
+				// Archived file from Dropbox with renaming.
+				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v/dropbox.dat", dir),
+				// Archived file from a HTTP server with a destination.
+				fmt.Sprintf("https://github.com/jkawamoto/roadie-azure/releases/download/v0.3.3/roadie-azure_linux_amd64.tar.gz:%v/", dir),
+				// Archived file from a HTTP server with renaming.
+				fmt.Sprintf("https://github.com/jkawamoto/roadie-azure/releases/download/v0.3.3/roadie-azure_linux_amd64.tar.gz:%v/sample.dat", dir),
+				// Plain file from a HTTP server with a destination.
+				fmt.Sprintf("https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md:%v/", dir),
+				// Plain file from a HTTP server with renaming.
+				fmt.Sprintf("https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md:%v", filepath.Join(dir, "README2.md")),
 			},
 		},
-		Logger: log.New(os.Stdout, "", log.Lshortfile),
+		Logger: log.New(ioutil.Discard, "", log.Lshortfile),
+	}
+	expectedFiles := []string{
+		"aaa",
+		"dropbox.dat",
+		"roadie-azure_linux_amd64",
+		"sample.dat",
+		"README.md",
+		"README2.md",
 	}
 
 	err = script.DownloadDataFiles(context.Background())
 	if err != nil {
-		t.Error(err.Error())
+		t.Fatalf("DownloadDataFiles returns an error: %v", err)
 	}
-
-	_, err = os.Stat(filepath.Join(dir, "aaa"))
-	if err != nil {
-		t.Error("Data file `aaa` doesn't exist")
-	}
-	_, err = os.Stat(filepath.Join(dir, "roadie-gcp-0.9.4"))
-	if err != nil {
-		t.Error("Data file directory roadie-gcp-0.9.4 doesn't exist.")
+	for _, f := range expectedFiles {
+		_, err = os.Stat(filepath.Join(dir, f))
+		if err != nil {
+			t.Errorf("downloaded file %q doesn't exist: %v", f, err)
+		}
 	}
 
 }

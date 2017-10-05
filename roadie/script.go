@@ -176,25 +176,30 @@ func (s *Script) DownloadDataFiles(ctx context.Context) (err error) {
 				return
 			}
 
-			if strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip") {
+			switch {
+			case strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip"):
+				// Archived file.
 				err = e.Expand(ctx, obj)
 				if err != nil {
 					return
 				}
 
-			} else {
-				fp, err := os.OpenFile(obj.Dest, os.O_CREATE|os.O_WRONLY, 0644)
+			default:
+				// Plain file
+				var fp *os.File
+				fp, err = os.OpenFile(filepath.Join(obj.Dest, obj.Name), os.O_CREATE|os.O_WRONLY, 0644)
 				if err != nil {
-					return err
+					return
 				}
 				_, err = io.Copy(fp, obj.Body)
 				if err != nil {
-					return err
+					return
 				}
 
 			}
 			s.Logger.Println("Finished downloading data file", url)
 			return
+
 		})
 
 	}
