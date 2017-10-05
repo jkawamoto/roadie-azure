@@ -34,6 +34,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/Azure/azure-sdk-for-go/storage"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jkawamoto/roadie-azure/assets"
@@ -208,19 +209,12 @@ func (s *Script) DownloadDataFiles(ctx context.Context) (err error) {
 }
 
 // UploadResults uploads result files.
-func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err error) {
+func (s *Script) UploadResults(ctx context.Context, store *azure.StorageService) (err error) {
+
 	dir := strings.TrimPrefix(s.Name, "task-")
 
 	s.Logger.Println("Uploading result files")
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	storage, err := azure.NewStorageService(ctx, cfg, s.Logger)
-	if err != nil {
-		return
-	}
-
-	var eg errgroup.Group
+	eg, ctx := errgroup.WithContext(ctx)
 	for i := range s.Run {
 
 		idx := i
@@ -232,7 +226,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 			filename := fmt.Sprintf("/tmp/stdout%v.txt", idx)
 			info, err := os.Stat(filename)
 			if err != nil {
-				s.Logger.Println("Cannot find stdout%v.txt\n", idx)
+				s.Logger.Printf("Cannot find stdout%v.txt\n", idx)
 				return
 			}
 
@@ -244,35 +238,39 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 			defer fp.Close()
 			outfile := fmt.Sprintf("%s/stdout%v.txt", dir, idx)
 			reader = fp
+			contentType := "text/plain"
 
 			if info.Size() > CompressThreshold {
 
 				var xzReader io.Reader
 				xzReader, err = xz.NewReader(reader)
 				if err != nil {
-					s.Logger.Println("Cannot compress an uploading file:", err.Error())
+					s.Logger.Println("Cannot compress an uploading file:", err)
 				} else {
 					reader = xzReader
 					outfile = fmt.Sprintf("%v.xz", outfile)
+					contentType = "application/x-xz"
 				}
 
 			}
-
-			url, err := storage.Upload(ctx, azure.ResultContainer, outfile, reader)
+			err = store.UploadWithMetadata(ctx, azure.ResultContainer, outfile, reader, &storage.BlobProperties{
+				ContentType: contentType,
+			}, nil)
 			if err != nil {
-				s.Logger.Printf("Fiald to upload stdout%v.txt\n", idx)
+				s.Logger.Printf("Fiald to upload stdout%v.txt", idx)
 				return
 			}
-			s.Logger.Printf("stdout%v.txt is uploaded to %v\n", idx, url)
+			s.Logger.Printf("stdout%v.txt is uploaded", idx)
 			return
 		})
 
 	}
 
+	var matches []string
 	for _, v := range s.Upload {
-		matches, err := filepath.Glob(v)
+		matches, err = filepath.Glob(v)
 		if err != nil {
-			s.Logger.Println("Not match any files to", v)
+			s.Logger.Printf("Not match any files to %v: %v", v, err)
 			continue
 		}
 
@@ -288,16 +286,12 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 				}
 				defer fp.Close()
 
-				url, err := storage.Upload(
-					ctx,
-					azure.ResultContainer,
-					fmt.Sprintf("%s/%v", dir, name),
-					fp)
+				err = store.UploadWithMetadata(ctx, azure.ResultContainer, fmt.Sprintf("%s/%v", dir, filepath.Base(name)), fp, nil, nil)
 				if err != nil {
 					s.Logger.Println("Cannot upload", name)
 					return
 				}
-				s.Logger.Printf("%v is uploaded to %v\n", name, url)
+				s.Logger.Printf("%v is uploaded", name)
 				return
 			})
 
@@ -307,6 +301,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 
 	err = eg.Wait()
 	if err != nil {
+		s.Logger.Printf("Failed uploading result files: %v", err)
 		return
 	}
 

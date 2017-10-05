@@ -33,57 +33,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jkawamoto/roadie/cloud/azure"
+	"github.com/jkawamoto/roadie/cloud/azure/mock"
 	"github.com/jkawamoto/roadie/script"
 )
-
-func TestDockerfile(t *testing.T) {
-
-	script := Script{
-		Script: &script.Script{
-			APT: []string{
-				"python-numpy",
-				"python-scipy",
-			},
-		},
-	}
-
-	buf, err := script.Dockerfile()
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	res := string(buf)
-	if !strings.Contains(res, "python-numpy") || !strings.Contains(res, "python-scipy") {
-		t.Error("Generated Dockerfile is not correct:", res)
-	}
-
-}
-
-func TestEntrypoint(t *testing.T) {
-
-	script := Script{
-		Script: &script.Script{
-			Run: []string{
-				"cmd1",
-				"cmd2",
-			},
-		},
-	}
-
-	buf, err := script.Entrypoint()
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	res := string(buf)
-	if !strings.Contains(res, "cmd1") || !strings.Contains(res, "cmd2") {
-		t.Error("Generated entrypoint is not correct:", res)
-	}
-	if !strings.Contains(res, "stdout0.txt") || !strings.Contains(res, "stdout1.txt") {
-		t.Error("Generated entrypoint is not correct:", res)
-	}
-
-}
 
 func TestPrepareSourceCode(t *testing.T) {
 
@@ -360,6 +313,140 @@ func TestDownloadDataFiles(t *testing.T) {
 		if err != nil {
 			t.Errorf("downloaded file %q doesn't exist: %v", f, err)
 		}
+	}
+
+}
+
+func TestUploadResults(t *testing.T) {
+
+	var err error
+	tmp, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("cannot create a temporary directory: %v", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	script := Script{
+		Script: &script.Script{
+			Name: "task-abc",
+			Run: []string{
+				"cmd1",
+				"cmd2",
+			},
+			Upload: []string{
+				filepath.Join(tmp, "*.txt"),
+			},
+		},
+		Logger: log.New(ioutil.Discard, "", log.LstdFlags),
+	}
+	var expected []string
+
+	// Create dummy output files.
+	for i := range script.Run {
+		filename := filepath.Join("/tmp", fmt.Sprintf("stdout%v.txt", i))
+		_, err = os.Stat(filename)
+		if err != nil {
+			err = ioutil.WriteFile(filename, []byte(filename), 0644)
+			if err != nil {
+				t.Fatalf("cannot create dummy output file %v: %v", filename, err)
+			}
+			defer os.Remove(filename)
+		}
+		expected = append(expected, filepath.Base(filename))
+	}
+
+	// Create dummy other outputs.
+	for i := 0; i != 10; i++ {
+		filename := filepath.Join(tmp, fmt.Sprintf("output-%v.txt", i))
+		err = ioutil.WriteFile(filename, []byte(filename), 0644)
+		if err != nil {
+			t.Fatalf("cannot create dummy output file %v: %v", filename, err)
+		}
+		expected = append(expected, filepath.Base(filename))
+	}
+
+	server := mock.NewStorageServer()
+	defer server.Close()
+
+	cli, err := server.GetClient()
+	if err != nil {
+		t.Fatalf("cannot get a client: %v", err)
+	}
+
+	store := azure.StorageService{
+		Client: cli.GetBlobService(),
+		Logger: log.New(ioutil.Discard, "", log.LstdFlags),
+	}
+
+	err = script.UploadResults(context.Background(), &store)
+	if err != nil {
+		t.Fatalf("UploadResults returns an error: %v", err)
+	}
+	c, ok := server.Items["result"]
+	if !ok {
+		t.Fatalf("container %q doesn't exist", "result")
+	}
+	for _, f := range expected {
+		name := filepath.Join("abc", f)
+		_, ok = c[name]
+		if !ok {
+			t.Errorf("uploaded file %q doesn't exist", name)
+		}
+	}
+	if t.Failed() {
+		t.Log("following files are stored in the cloud storage")
+		for key, value := range c {
+			t.Logf("%v: %v", key, value)
+		}
+	}
+
+}
+
+func TestDockerfile(t *testing.T) {
+
+	script := Script{
+		Script: &script.Script{
+			APT: []string{
+				"python-numpy",
+				"python-scipy",
+			},
+		},
+	}
+
+	buf, err := script.Dockerfile()
+	if err != nil {
+		t.Fatalf("cannot create a dockerfile: %v", err)
+	}
+
+	res := string(buf)
+	if !strings.Contains(res, "python-numpy") || !strings.Contains(res, "python-scipy") {
+		t.Error("Generated Dockerfile is not correct:", res)
+	}
+
+}
+
+func TestEntrypoint(t *testing.T) {
+
+	script := Script{
+		Script: &script.Script{
+			Run: []string{
+				"cmd1",
+				"cmd2",
+			},
+		},
+	}
+
+	buf, err := script.Entrypoint()
+	if err != nil {
+		t.Fatalf("cannot create an entrypoint: %v", err)
+	}
+
+	res := string(buf)
+	if !strings.Contains(res, "cmd1") || !strings.Contains(res, "cmd2") {
+		t.Error("Generated entrypoint is not correct:", res)
+	}
+	if !strings.Contains(res, "stdout0.txt") || !strings.Contains(res, "stdout1.txt") {
+		t.Error("Generated entrypoint is not correct:", res)
 	}
 
 }
