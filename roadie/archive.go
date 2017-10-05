@@ -42,33 +42,33 @@ type Expander struct {
 	Logger *log.Logger
 }
 
+// NewExpander creates an expander object with a given logger.
 func NewExpander(logger *log.Logger) *Expander {
 	return &Expander{
 		Logger: logger,
 	}
 }
 
+// Expand a given object.
 func (e *Expander) Expand(ctx context.Context, obj *Object) (err error) {
-
-	if obj.Dest == obj.Name {
-		obj.Dest = "."
-	}
 
 	switch {
 	case strings.HasSuffix(obj.Name, "tar.gz"):
 		e.Logger.Printf("Given file %v is a gziped tarball", obj.Name)
-		reader, err := gzip.NewReader(obj.Body)
+		var reader io.ReadCloser
+		reader, err = gzip.NewReader(obj.Body)
 		if err != nil {
-			return err
+			return
 		}
 		defer reader.Close()
 		return e.ExpandTarball(ctx, reader, obj.Dest)
 
 	case strings.HasSuffix(obj.Name, "tar.xz"):
 		e.Logger.Printf("Given file %v is a tarball compressed by XZ", obj.Name)
-		reader, err := xz.NewReader(obj.Body)
+		var reader io.Reader
+		reader, err = xz.NewReader(obj.Body)
 		if err != nil {
-			return err
+			return
 		}
 		return e.ExpandTarball(ctx, reader, obj.Dest)
 
@@ -101,7 +101,7 @@ func (e *Expander) ExpandTarball(ctx context.Context, in io.Reader, dir string) 
 			err = nil
 			break
 		} else if err != nil {
-			break
+			return
 		}
 
 		info := header.FileInfo()
@@ -110,53 +110,53 @@ func (e *Expander) ExpandTarball(ctx context.Context, in io.Reader, dir string) 
 			e.Logger.Println("Creating directories", name)
 			err = os.MkdirAll(name, 0744)
 			if err != nil {
-				break
+				return
 			}
 
 		} else {
 			// Chack parent directories exist.
-			dir := filepath.Dir(name)
-			_, err = os.Stat(dir)
+			parent := filepath.Dir(name)
+			_, err = os.Stat(parent)
 			if err != nil {
-				e.Logger.Println("Creating directories", dir)
-				err = os.MkdirAll(dir, 0744)
+				e.Logger.Println("Creating directories", parent)
+				err = os.MkdirAll(parent, 0744)
 				if err != nil {
-					break
+					return
 				}
-				err = nil
 			}
 
 			e.Logger.Println("Writing file", name)
 			var fp *os.File
 			fp, err = os.OpenFile(name, os.O_WRONLY|os.O_CREATE, header.FileInfo().Mode())
 			if err != nil {
-				break
+				return
 			}
 
 			_, err = io.Copy(fp, reader)
 			fp.Close()
 			if err != nil {
-				break
+				return
 			}
 
 		}
 	}
 
-	if err != nil {
-		return
-	}
 	e.Logger.Println("Finished to expand the tarball to", dir)
 	return
 
 }
 
+// ExpandZip expand a zipped file.
 func (e *Expander) ExpandZip(ctx context.Context, in io.Reader, dir string) (err error) {
 
-	fp, err := ioutil.TempFile("", "temp")
-	e.Logger.Println("Storing the zip file to", fp.Name())
+	// Since zip.Reader requires the total file size, store the zipped file to
+	// a temporary place.
+	fp, err := ioutil.TempFile("", "")
 	if err != nil {
 		return
 	}
+
+	e.Logger.Println("Storing the zip file to", fp.Name())
 	_, err = io.Copy(fp, in)
 	if err != nil {
 		return
@@ -183,30 +183,31 @@ func (e *Expander) ExpandZip(ctx context.Context, in io.Reader, dir string) (err
 	for _, v := range zipReader.File {
 
 		filename := filepath.Join(dir, v.Name)
-		err = func() error {
 
-			if v.FileInfo().IsDir() {
-				e.Logger.Println("Creating directories", filename)
-				return os.MkdirAll(filename, 0744)
-			}
-
-			data, err := v.Open()
+		if v.FileInfo().IsDir() {
+			e.Logger.Println("Creating directories", filename)
+			err = os.MkdirAll(filename, 0744)
 			if err != nil {
-				return err
+				return
 			}
-			defer data.Close()
+			continue
+		}
 
-			e.Logger.Println("Writing file", filename)
-			writer, err = os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, v.Mode())
-			if err != nil {
-				return err
-			}
-			defer writer.Close()
+		var data io.ReadCloser
+		data, err = v.Open()
+		if err != nil {
+			return
+		}
+		defer data.Close()
 
-			_, err = io.Copy(writer, data)
-			return err
+		e.Logger.Println("Writing file", filename)
+		writer, err = os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, v.Mode())
+		if err != nil {
+			return
+		}
+		defer writer.Close()
 
-		}()
+		_, err = io.Copy(writer, data)
 		if err != nil {
 			return
 		}

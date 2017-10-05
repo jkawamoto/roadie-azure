@@ -27,7 +27,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -35,45 +34,48 @@ func TestExpandTarball(t *testing.T) {
 
 	fp, err := os.Open("archive_test.tar")
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot open %v: %v", "archive_test.tar", err)
 	}
 	defer fp.Close()
 
-	dir, err := ioutil.TempDir("", "TestExpandTarball")
+	dir, err := ioutil.TempDir("", "")
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot create a temporary directory: %v", err)
 	}
 	defer os.RemoveAll(dir)
 
-	expander := NewExpander(log.New(os.Stdout, "", log.Lshortfile))
+	expander := NewExpander(log.New(ioutil.Discard, "", log.Lshortfile))
 	err = expander.ExpandTarball(context.Background(), fp, dir)
 	if err != nil {
-		t.Error(err.Error())
+		t.Fatalf("ExpandTarball returns an error: %v", err)
 	}
 
-	var body []byte
 	// archive_test.tar
 	// ├── abc.txt
 	// ├── empty
 	// └── folder
 	//     └── def.txt
-	body, err = ioutil.ReadFile(filepath.Join(dir, "abc.txt"))
-	if err != nil {
-		t.Error(err.Error())
-	} else if !strings.Contains(string(body), "abc") {
-		t.Error("Expanded file abc.txt is broken")
+	for _, expect := range []string{"abc.txt", "folder/def.txt"} {
+		var body, original []byte
+		body, err = ioutil.ReadFile(filepath.Join(dir, expect))
+		if err != nil {
+			t.Fatalf("ReadFile returns an error: %v", err)
+		}
+		original, err = ioutil.ReadFile(filepath.Join("../data", expect))
+		if err != nil {
+			t.Fatalf("ReadFile returns an error: %v", err)
+		}
+		if string(body) != string(original) {
+			t.Errorf("the file body is %q, want %q", string(body), string(original))
+		}
 	}
-	body, err = ioutil.ReadFile(filepath.Join(dir, "folder/def.txt"))
-	if err != nil {
-		t.Error(err.Error())
-	} else if !strings.Contains(string(body), "def") {
-		t.Error("Expanded file def.txt is broken")
-	}
+
 	info, err := os.Stat(filepath.Join(dir, "empty"))
 	if err != nil {
-		t.Error(err.Error())
-	} else if !info.IsDir() {
-		t.Error("Expanded folder empty is not a directory")
+		t.Fatalf("Stat returns an error: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("expanded folder empty is not a directory")
 	}
 
 }
@@ -82,45 +84,48 @@ func TestExpandZip(t *testing.T) {
 
 	fp, err := os.Open("archive_test.zip")
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot open %v: %v", "archive_test.zip", err)
 	}
 	defer fp.Close()
 
-	dir, err := ioutil.TempDir("", "TestExpandZip")
+	dir, err := ioutil.TempDir("", "")
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot create a temporary directory: %v", err)
 	}
 	defer os.RemoveAll(dir)
 
-	expander := NewExpander(log.New(os.Stdout, "", log.Lshortfile))
+	expander := NewExpander(log.New(ioutil.Discard, "", log.Lshortfile))
 	err = expander.ExpandZip(context.Background(), fp, dir)
 	if err != nil {
-		t.Error(err.Error())
+		t.Fatalf("ExpandZip returns an error: %v", err)
 	}
 
-	var body []byte
 	// archive_test.tar
 	// ├── abc.txt
 	// ├── empty
 	// └── folder
 	//     └── def.txt
-	body, err = ioutil.ReadFile(filepath.Join(dir, "abc.txt"))
-	if err != nil {
-		t.Error(err.Error())
-	} else if !strings.Contains(string(body), "abc") {
-		t.Error("Expanded file abc.txt is broken")
+	for _, expect := range []string{"abc.txt", "folder/def.txt"} {
+		var body, original []byte
+		body, err = ioutil.ReadFile(filepath.Join(dir, expect))
+		if err != nil {
+			t.Fatalf("ReadFile returns an error: %v", err)
+		}
+		original, err = ioutil.ReadFile(filepath.Join("../data", expect))
+		if err != nil {
+			t.Fatalf("ReadFile returns an error: %v", err)
+		}
+		if string(body) != string(original) {
+			t.Errorf("the file body is %q, want %q", string(body), string(original))
+		}
 	}
-	body, err = ioutil.ReadFile(filepath.Join(dir, "folder/def.txt"))
-	if err != nil {
-		t.Error(err.Error())
-	} else if !strings.Contains(string(body), "def") {
-		t.Error("Expanded file def.txt is broken")
-	}
+
 	info, err := os.Stat(filepath.Join(dir, "empty"))
 	if err != nil {
-		t.Error(err.Error())
-	} else if !info.IsDir() {
-		t.Error("Expandedn folder empty is not a directory")
+		t.Fatalf("Stat returns an error: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("expanded folder empty is not a directory")
 	}
 
 }
