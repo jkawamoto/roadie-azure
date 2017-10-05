@@ -22,7 +22,6 @@
 package roadie
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -89,7 +88,7 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 			{"git", []string{"pull", "origin", "master"}},
 		}
 		for _, c := range cmds {
-			err = execCommand(exec.CommandContext(ctx, c.name, c.args...), s.Logger)
+			err = ExecCommand(exec.CommandContext(ctx, c.name, c.args...), s.Logger)
 			if err != nil {
 				return
 			}
@@ -350,43 +349,6 @@ func (s *Script) Entrypoint() (res []byte, err error) {
 	buf := bytes.NewBuffer(nil)
 	err = temp.Execute(buf, s.Script)
 	res = buf.Bytes()
-	return
-
-}
-
-// execCommand runs a given command forwarding its outputs to a given logger.
-func execCommand(cmd *exec.Cmd, logger *log.Logger) (err error) {
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		logger.Printf("cannot read stdout of %v: %v", filepath.Base(cmd.Path), err)
-	} else {
-		go func() {
-			defer stdout.Close()
-			scanner := bufio.NewScanner(stdout)
-			for scanner.Scan() {
-				logger.Println(scanner.Text())
-			}
-		}()
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		logger.Printf("cannot read stderr of %v: %v", filepath.Base(cmd.Path), err)
-	} else {
-		go func() {
-			defer stderr.Close()
-			scanner := bufio.NewScanner(stderr)
-			for scanner.Scan() {
-				logger.Println(scanner.Text())
-			}
-		}()
-	}
-
-	err = cmd.Start()
-	if err == nil {
-		err = cmd.Wait()
-	}
 	return
 
 }
