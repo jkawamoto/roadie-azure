@@ -79,82 +79,79 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 
 	case strings.HasSuffix(s.Source, ".git"):
 		s.Logger.Println("Cloning the source repository", s.Source)
-		cmd := exec.CommandContext(ctx, "git", "clone", s.Source, ".")
-
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			s.Logger.Println("Cannot read stdout of git:", err.Error())
-		} else {
-			go func() {
-				defer stdout.Close()
-				scanner := bufio.NewScanner(stdout)
-				for scanner.Scan() {
-					s.Logger.Println(scanner.Text())
-				}
-			}()
+		cmds := []struct {
+			name string
+			args []string
+		}{
+			{"git", []string{"init"}},
+			{"git", []string{"remote", "add", "origin", s.Source}},
+			{"git", []string{"pull", "origin", "master"}},
 		}
-
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			s.Logger.Println("Cannot read stderr of git:", err.Error())
-		} else {
-			go func() {
-				defer stderr.Close()
-				scanner := bufio.NewScanner(stderr)
-				for scanner.Scan() {
-					s.Logger.Println(scanner.Text())
-				}
-			}()
+		for _, c := range cmds {
+			err = execCommand(exec.CommandContext(ctx, c.name, c.args...), s.Logger)
+			if err != nil {
+				return
+			}
 		}
-
-		err = cmd.Start()
-		if err == nil {
-			err = cmd.Wait()
-		}
-		return err
+		return
 
 	case strings.HasPrefix(s.Source, "http://") || strings.HasPrefix(s.Source, "https://"):
+		// Files hosted on a HTTP server.
 		s.Logger.Println("Downloading the source code", s.Source)
-		obj, err := OpenURL(ctx, s.Source)
+		var obj *Object
+		obj, err = OpenURL(ctx, s.Source)
 		if err != nil {
-			return err
+			return
 		}
 
-		e := NewExpander(s.Logger)
-		if strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip") {
-			return e.Expand(ctx, obj)
+		switch {
+		case strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip"):
+			// Archived files.
+			return NewExpander(s.Logger).Expand(ctx, obj)
 
-		} else {
-			fp, err := os.OpenFile(obj.Dest, os.O_CREATE|os.O_WRONLY, 0644)
+		default:
+			// Plain files.
+			var fp *os.File
+			fp, err = os.OpenFile(obj.Dest, os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
-				return err
+				return
 			}
+			defer fp.Close()
 			_, err = io.Copy(fp, obj.Body)
-			return err
-
+			return
 		}
 
 	case strings.HasPrefix(s.Source, "file://"):
-		if strings.HasSuffix(s.Source, ".gz") || strings.HasSuffix(s.Source, ".xz") || strings.HasSuffix(s.Source, ".zip") {
-			filename := s.Source[len("file://"):]
+		// Local file.
+		s.Logger.Println("Copying the source code", s.Source)
+		filename := s.Source[len("file://"):]
 
+		switch {
+		case strings.HasSuffix(s.Source, ".gz") || strings.HasSuffix(s.Source, ".xz") || strings.HasSuffix(s.Source, ".zip"):
+			// Archived file.
 			s.Logger.Println("Expanding the source file", filename)
-			fp, err := os.Open(filename)
+			var fp *os.File
+			fp, err = os.Open(filename)
 			if err != nil {
-				return err
+				return
 			}
 			defer fp.Close()
 
-			e := NewExpander(s.Logger)
-			return e.Expand(ctx, &Object{
+			return NewExpander(s.Logger).Expand(ctx, &Object{
 				Name: filename,
 				Dest: ".",
 				Body: fp,
 			})
-		}
-	}
 
+		default:
+			// Plain file.
+			return os.Symlink(filename, filepath.Base(filename))
+
+		}
+
+	}
 	return fmt.Errorf("Unsupported source file type: %v", s.Source)
+
 }
 
 // DownloadDataFiles downloads files specified in data section.
@@ -352,6 +349,43 @@ func (s *Script) Entrypoint() (res []byte, err error) {
 	buf := bytes.NewBuffer(nil)
 	err = temp.Execute(buf, s.Script)
 	res = buf.Bytes()
+	return
+
+}
+
+// execCommand runs a given command forwarding its outputs to a given logger.
+func execCommand(cmd *exec.Cmd, logger *log.Logger) (err error) {
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		logger.Printf("cannot read stdout of %v: %v", filepath.Base(cmd.Path), err)
+	} else {
+		go func() {
+			defer stdout.Close()
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				logger.Println(scanner.Text())
+			}
+		}()
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		logger.Printf("cannot read stderr of %v: %v", filepath.Base(cmd.Path), err)
+	} else {
+		go func() {
+			defer stderr.Close()
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				logger.Println(scanner.Text())
+			}
+		}()
+	}
+
+	err = cmd.Start()
+	if err == nil {
+		err = cmd.Wait()
+	}
 	return
 
 }
