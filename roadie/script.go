@@ -310,7 +310,7 @@ func (s *Script) UploadResults(ctx context.Context, store *azure.StorageService)
 
 }
 
-// dockerfile generates a dockerfile for this script.
+// Dockerfile generates a dockerfile for this script.
 func (s *Script) Dockerfile() (res []byte, err error) {
 
 	if s.Image == "" {
@@ -334,7 +334,7 @@ func (s *Script) Dockerfile() (res []byte, err error) {
 
 }
 
-// entrypoint generates an entrypoint script for this script.
+// Entrypoint generates an entrypoint script for this script.
 func (s *Script) Entrypoint() (res []byte, err error) {
 
 	data, err := assets.Asset("assets/entrypoint.sh")
