@@ -26,14 +26,17 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/jkawamoto/roadie/cloud/azure"
 )
 
+// pipedWriter is a WriterClose which uploads written messages to a cloud storage.
 type pipedWriter struct {
 	io.WriteCloser
 	done chan struct{}
 }
 
+// Close this writer.
 func (w *pipedWriter) Close() (err error) {
 	err = w.WriteCloser.Close()
 	<-w.done
@@ -42,16 +45,16 @@ func (w *pipedWriter) Close() (err error) {
 
 // NewLogWriter creates a new writer which writes messages to a given named
 // file in the cloud storage.
-func NewLogWriter(ctx context.Context, storage *azure.StorageService, name string, debug io.Writer) (writer io.WriteCloser) {
+func NewLogWriter(ctx context.Context, store *azure.StorageService, name string, debug io.Writer) (writer io.WriteCloser) {
 
 	reader, writer := io.Pipe()
 	done := make(chan struct{}, 1)
 
 	go func() {
 		defer reader.Close()
-		_, err := storage.UploadWithMetadata(ctx, azure.LogContainer, name, reader, map[string]string{
-			"Content-Type": "text/plain",
-		})
+		err := store.UploadWithMetadata(ctx, azure.LogContainer, name, reader, &storage.BlobProperties{
+			ContentType: "text/plain",
+		}, nil)
 		if err != nil {
 			if debug != nil {
 				fmt.Fprintln(debug, err.Error())
