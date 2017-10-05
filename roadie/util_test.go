@@ -1,5 +1,5 @@
 //
-// command/init_test.go
+// roadie/util_test.go
 //
 // Copyright (c) 2017 Junpei Kawamoto
 //
@@ -19,39 +19,48 @@
 // along with Roadie Azure. If not, see <http://www.gnu.org/licenses/>.
 //
 
-package command
+package roadie
 
 import (
-	"io/ioutil"
-	"os"
+	"bufio"
+	"bytes"
+	"log"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestCreateInitScript(t *testing.T) {
+func TestExecCommand(t *testing.T) {
 
-	var err error
-	tmp, err := ioutil.TempDir("", "")
+	var output bytes.Buffer
+	logger := log.New(&output, "", log.Ltime)
+	cmd := exec.Command("ls")
+
+	err := ExecCommand(cmd, logger)
 	if err != nil {
-		t.Fatalf("cannot create a temporary directory: %v", err)
+		t.Fatalf("ExecCommand returns an error: %v", err)
 	}
-	defer os.RemoveAll(tmp)
-
-	filename := filepath.Join(tmp, "test-init.sh")
-	err = createInitScript(filename)
+	matches, err := filepath.Glob("*")
 	if err != nil {
-		t.Fatalf("createInitScript returns an error: %v", err)
+		t.Fatalf("Glob returns an error: %v", err)
 	}
 
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		t.Fatalf("cannot read filr %v: %v", filename, err)
+	c := 0
+	scanner := bufio.NewScanner(&output)
+	for scanner.Scan() {
+		for _, f := range matches {
+			if strings.Contains(scanner.Text(), f) {
+				c++
+			}
+		}
 	}
-	script := string(data)
+	if len(matches) != c {
+		t.Errorf("%v files found, want %v", c, len(matches))
+	}
 
-	if !strings.Contains(script, "apt-get update") {
-		t.Errorf("Created init script is not correct: %v", script)
+	if t.Failed() {
+		t.Log(output.String())
 	}
 
 }

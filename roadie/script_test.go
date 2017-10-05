@@ -22,17 +22,385 @@
 package roadie
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jkawamoto/roadie/cloud/azure"
+	"github.com/jkawamoto/roadie/cloud/azure/mock"
 	"github.com/jkawamoto/roadie/script"
 )
+
+func TestPrepareSourceCode(t *testing.T) {
+
+	ctx := context.Background()
+	output := bytes.NewBuffer(nil)
+	s := Script{
+		Script: new(script.Script),
+		Logger: log.New(output, "", log.LstdFlags),
+	}
+
+	t.Run("empty source", func(t *testing.T) {
+		output.Reset()
+		err := s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+	})
+
+	t.Run("git source", func(t *testing.T) {
+		output.Reset()
+
+		temp, err := ioutil.TempDir("", "")
+		if err != nil {
+			t.Fatalf("cannot create a temporary directory: %v", err)
+		}
+		defer os.RemoveAll(temp)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("cannot get the working directory: %v", err)
+		}
+		err = os.Chdir(temp)
+		if err != nil {
+			t.Fatalf("cannot change the current directory: %v", err)
+		}
+		defer os.Chdir(wd)
+
+		err = ioutil.WriteFile("test-file", []byte("aaa"), 0666)
+		if err != nil {
+			t.Errorf("cannot create a dummy file: %v", err)
+		}
+
+		s.Source = "https://github.com/jkawamoto/roadie-azure.git"
+		err = s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+		var matches []string
+		matches, err = filepath.Glob("roadie/*")
+		if err != nil {
+			t.Fatalf("Glob returns an error: %v", err)
+		}
+		for _, f := range matches {
+			_, err = os.Stat(filepath.Join(wd, filepath.Base(f)))
+			if err != nil {
+				t.Errorf("cloned file %q doesn't exist in %q", filepath.Base(f), wd)
+			}
+		}
+		if t.Failed() {
+			data, _ := exec.Command("ls", "-la").Output()
+			t.Log(string(data))
+		}
+	})
+
+	t.Run("dropbox source", func(t *testing.T) {
+		output.Reset()
+
+		temp, err := ioutil.TempDir("", "")
+		if err != nil {
+			t.Fatalf("cannot create a temporary directory: %v", err)
+		}
+		defer os.RemoveAll(temp)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("cannot get the working directory: %v", err)
+		}
+		err = os.Chdir(temp)
+		if err != nil {
+			t.Fatalf("cannot change the current directory: %v", err)
+		}
+		defer os.Chdir(wd)
+
+		s.Source = "dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa"
+		err = s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+		_, err = os.Stat("aaa")
+		if err != nil {
+			t.Errorf("download source files don't have executable file %q", "aaa")
+		}
+		if t.Failed() {
+			data, _ := exec.Command("ls", "-la").Output()
+			t.Log(string(data))
+		}
+	})
+
+	t.Run("archived https source", func(t *testing.T) {
+		output.Reset()
+
+		temp, err := ioutil.TempDir("", "")
+		if err != nil {
+			t.Fatalf("cannot create a temporary directory: %v", err)
+		}
+		defer os.RemoveAll(temp)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("cannot get the working directory: %v", err)
+		}
+		err = os.Chdir(temp)
+		if err != nil {
+			t.Fatalf("cannot change the current directory: %v", err)
+		}
+		defer os.Chdir(wd)
+
+		s.Source = "https://github.com/jkawamoto/roadie-azure/releases/download/v0.3.3/roadie-azure_linux_amd64.tar.gz"
+		err = s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+		_, err = os.Stat("roadie-azure_linux_amd64/roadie-azure")
+		if err != nil {
+			t.Errorf("download source files don't have executable file %q", "roadie-azure_linux_amd64/roadie-azure")
+		}
+		if t.Failed() {
+			data, _ := exec.Command("ls", "-la", "roadie-azure_linux_amd64").Output()
+			t.Log(string(data))
+		}
+	})
+
+	t.Run("plain https source", func(t *testing.T) {
+		output.Reset()
+
+		temp, err := ioutil.TempDir("", "")
+		if err != nil {
+			t.Fatalf("cannot create a temporary directory: %v", err)
+		}
+		defer os.RemoveAll(temp)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("cannot get the working directory: %v", err)
+		}
+		err = os.Chdir(temp)
+		if err != nil {
+			t.Fatalf("cannot change the current directory: %v", err)
+		}
+		defer os.Chdir(wd)
+
+		s.Source = "https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md"
+		err = s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+		_, err = os.Stat("README.md")
+		if err != nil {
+			t.Errorf("download source files don't have executable file %q", "roadie")
+		}
+		if t.Failed() {
+			data, _ := exec.Command("ls", "-la").Output()
+			t.Log(string(data))
+		}
+	})
+
+	t.Run("archived file source", func(t *testing.T) {
+		output.Reset()
+
+		temp, err := ioutil.TempDir("", "")
+		if err != nil {
+			t.Fatalf("cannot create a temporary directory: %v", err)
+		}
+		defer os.RemoveAll(temp)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("cannot get the working directory: %v", err)
+		}
+		err = os.Chdir(temp)
+		if err != nil {
+			t.Fatalf("cannot change the current directory: %v", err)
+		}
+		defer os.Chdir(wd)
+
+		s.Source = "file://" + filepath.Join(wd, "archive_test.zip")
+		err = s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+		_, err = os.Stat("abc.txt")
+		if err != nil {
+			t.Errorf("prepared source files don't have file %q", "abc.txt")
+		}
+		if t.Failed() {
+			data, _ := exec.Command("ls", "-la").Output()
+			t.Log(string(data))
+		}
+	})
+
+	t.Run("plain file source", func(t *testing.T) {
+		output.Reset()
+
+		temp, err := ioutil.TempDir("", "")
+		if err != nil {
+			t.Fatalf("cannot create a temporary directory: %v", err)
+		}
+		defer os.RemoveAll(temp)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("cannot get the working directory: %v", err)
+		}
+		err = os.Chdir(temp)
+		if err != nil {
+			t.Fatalf("cannot change the current directory: %v", err)
+		}
+		defer os.Chdir(wd)
+
+		target := "script_test.go"
+		s.Source = "file://" + filepath.Join(wd, target)
+		err = s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+		_, err = os.Stat(target)
+		if err != nil {
+			t.Errorf("prepared source files don't have file %q", target)
+		}
+		if t.Failed() {
+			data, _ := exec.Command("ls", "-la").Output()
+			t.Log(string(data))
+		}
+	})
+
+}
+
+func TestDownloadDataFiles(t *testing.T) {
+
+	dir, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("cannot create a temporary directory: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	script := Script{
+		Script: &script.Script{
+			Data: []string{
+				// Archived file from Dropbox with a destination.
+				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v/", dir),
+				// Archived file from Dropbox with renaming.
+				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v/dropbox.dat", dir),
+				// Archived file from a HTTP server with a destination.
+				fmt.Sprintf("https://github.com/jkawamoto/roadie-azure/releases/download/v0.3.3/roadie-azure_linux_amd64.tar.gz:%v/", dir),
+				// Archived file from a HTTP server with renaming.
+				fmt.Sprintf("https://github.com/jkawamoto/roadie-azure/releases/download/v0.3.3/roadie-azure_linux_amd64.tar.gz:%v/sample.dat", dir),
+				// Plain file from a HTTP server with a destination.
+				fmt.Sprintf("https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md:%v/", dir),
+				// Plain file from a HTTP server with renaming.
+				fmt.Sprintf("https://raw.githubusercontent.com/jkawamoto/roadie-azure/master/README.md:%v", filepath.Join(dir, "README2.md")),
+			},
+		},
+		Logger: log.New(ioutil.Discard, "", log.Lshortfile),
+	}
+	expectedFiles := []string{
+		"aaa",
+		"dropbox.dat",
+		"roadie-azure_linux_amd64",
+		"sample.dat",
+		"README.md",
+		"README2.md",
+	}
+
+	err = script.DownloadDataFiles(context.Background())
+	if err != nil {
+		t.Fatalf("DownloadDataFiles returns an error: %v", err)
+	}
+	for _, f := range expectedFiles {
+		_, err = os.Stat(filepath.Join(dir, f))
+		if err != nil {
+			t.Errorf("downloaded file %q doesn't exist: %v", f, err)
+		}
+	}
+
+}
+
+func TestUploadResults(t *testing.T) {
+
+	var err error
+	tmp, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("cannot create a temporary directory: %v", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	script := Script{
+		Script: &script.Script{
+			Name: "task-abc",
+			Run: []string{
+				"cmd1",
+				"cmd2",
+			},
+			Upload: []string{
+				filepath.Join(tmp, "*.txt"),
+			},
+		},
+		Logger: log.New(ioutil.Discard, "", log.LstdFlags),
+	}
+	var expected []string
+
+	// Create dummy output files.
+	for i := range script.Run {
+		filename := filepath.Join("/tmp", fmt.Sprintf("stdout%v.txt", i))
+		_, err = os.Stat(filename)
+		if err != nil {
+			err = ioutil.WriteFile(filename, []byte(filename), 0644)
+			if err != nil {
+				t.Fatalf("cannot create dummy output file %v: %v", filename, err)
+			}
+			defer os.Remove(filename)
+		}
+		expected = append(expected, filepath.Base(filename))
+	}
+
+	// Create dummy other outputs.
+	for i := 0; i != 10; i++ {
+		filename := filepath.Join(tmp, fmt.Sprintf("output-%v.txt", i))
+		err = ioutil.WriteFile(filename, []byte(filename), 0644)
+		if err != nil {
+			t.Fatalf("cannot create dummy output file %v: %v", filename, err)
+		}
+		expected = append(expected, filepath.Base(filename))
+	}
+
+	server := mock.NewStorageServer()
+	defer server.Close()
+
+	cli, err := server.GetClient()
+	if err != nil {
+		t.Fatalf("cannot get a client: %v", err)
+	}
+
+	store := azure.StorageService{
+		Client: cli.GetBlobService(),
+		Logger: log.New(ioutil.Discard, "", log.LstdFlags),
+	}
+
+	err = script.UploadResults(context.Background(), &store)
+	if err != nil {
+		t.Fatalf("UploadResults returns an error: %v", err)
+	}
+	c, ok := server.Items["result"]
+	if !ok {
+		t.Fatalf("container %q doesn't exist", "result")
+	}
+	for _, f := range expected {
+		name := filepath.Join("abc", f)
+		_, ok = c[name]
+		if !ok {
+			t.Errorf("uploaded file %q doesn't exist", name)
+		}
+	}
+	if t.Failed() {
+		t.Log("following files are stored in the cloud storage")
+		for key, value := range c {
+			t.Logf("%v: %v", key, value)
+		}
+	}
+
+}
 
 func TestDockerfile(t *testing.T) {
 
@@ -47,7 +415,7 @@ func TestDockerfile(t *testing.T) {
 
 	buf, err := script.Dockerfile()
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot create a dockerfile: %v", err)
 	}
 
 	res := string(buf)
@@ -70,7 +438,7 @@ func TestEntrypoint(t *testing.T) {
 
 	buf, err := script.Entrypoint()
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot create an entrypoint: %v", err)
 	}
 
 	res := string(buf)
@@ -79,41 +447,6 @@ func TestEntrypoint(t *testing.T) {
 	}
 	if !strings.Contains(res, "stdout0.txt") || !strings.Contains(res, "stdout1.txt") {
 		t.Error("Generated entrypoint is not correct:", res)
-	}
-	t.Log(res)
-
-}
-
-func TestDownloadDataFiles(t *testing.T) {
-
-	dir, err := ioutil.TempDir("", "TestDownloadDataFiles")
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-	defer os.RemoveAll(dir)
-
-	script := Script{
-		Script: &script.Script{
-			Data: []string{
-				fmt.Sprintf("dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa:%v", dir),
-				fmt.Sprintf("https://github.com/jkawamoto/roadie-gcp/archive/v0.9.4.tar.gz:%v", dir),
-			},
-		},
-		Logger: log.New(os.Stdout, "", log.Lshortfile),
-	}
-
-	err = script.DownloadDataFiles(context.Background())
-	if err != nil {
-		t.Error(err.Error())
-	}
-
-	_, err = os.Stat(filepath.Join(dir, "aaa"))
-	if err != nil {
-		t.Error("Data file `aaa` doesn't exist")
-	}
-	_, err = os.Stat(filepath.Join(dir, "roadie-gcp-0.9.4"))
-	if err != nil {
-		t.Error("Data file directory roadie-gcp-0.9.4 doesn't exist.")
 	}
 
 }

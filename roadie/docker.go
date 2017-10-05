@@ -68,6 +68,7 @@ type buildLog struct {
 	}
 }
 
+// NewDockerClient creates a new docker client.
 func NewDockerClient(logger *log.Logger) (*DockerClient, error) {
 
 	if logger == nil {
@@ -87,11 +88,11 @@ func NewDockerClient(logger *log.Logger) (*DockerClient, error) {
 
 }
 
+// Close this client.
 func (d *DockerClient) Close() error {
 	return d.client.Close()
 }
 
-// TODO: docker build and docker run should be moved to some common package.
 // Build builds a docker image to run this script.
 func (d *DockerClient) Build(ctx context.Context, opt *DockerBuildOpt) (err error) {
 

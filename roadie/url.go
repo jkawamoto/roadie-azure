@@ -24,9 +24,10 @@ package roadie
 import (
 	"compress/gzip"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -35,7 +36,9 @@ import (
 )
 
 var (
-	RegexpContentDisposition = regexp.MustCompile(`filename="([^"]+)";`)
+	// RegexpContentDisposition is a regular expression to obtain a file name
+	// from Content-Disposition header.
+	RegexpContentDisposition = regexp.MustCompile(`filename="?([^"]+)"?;?`)
 )
 
 // Object representing a file in a web server.
@@ -51,26 +54,39 @@ type Object struct {
 }
 
 // OpenURL opens a given url and returns an object associated with it.
-func OpenURL(ctx context.Context, url string) (obj *Object, err error) {
+func OpenURL(ctx context.Context, u string) (obj *Object, err error) {
 
-	url, dest := splitURL(url)
-	if strings.HasPrefix(url, "dropbox://") {
-		url = expandDropboxURL(url)
+	loc, err := url.Parse(u)
+	if err != nil {
+		return
 	}
 
-	req, err := http.NewRequest("", url, nil)
+	comps := filepath.SplitList(loc.Path)
+	var dest, name string
+	if len(comps) != 1 {
+		loc.Path = comps[0]
+		dest = path.Dir(comps[1])
+		if !strings.HasSuffix(comps[1], "/") {
+			name = path.Base(comps[1])
+		}
+	}
+
+	if loc.Scheme == "dropbox" {
+		loc = expandDropboxURL(loc)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, loc.String(), nil)
 	if err != nil {
 		return
 	}
 	req.Header.Add("Accept-encoding", "gzip")
 
-	var res *http.Response
-	res, err = ctxhttp.Do(ctx, nil, req)
+	res, err := ctxhttp.Do(ctx, nil, req)
 	if err != nil {
 		return
 	}
-	body := res.Body
 
+	body := res.Body
 	if res.Header.Get("Content-Encoding") == "gzip" {
 		body, err = gzip.NewReader(body)
 		if err != nil {
@@ -80,16 +96,15 @@ func OpenURL(ctx context.Context, url string) (obj *Object, err error) {
 
 	// Name is the base of the url but if Content-Disposition header is given,
 	// use that value instead.
-	name := filepath.Base(url)
-	if disposition := res.Header.Get("Content-Disposition"); disposition != "" {
-		if match := RegexpContentDisposition.FindStringSubmatch(disposition); match != nil {
-			name = match[1]
+	if name == "" {
+		if disposition := res.Header.Get("Content-Disposition"); disposition != "" {
+			if match := RegexpContentDisposition.FindStringSubmatch(disposition); match != nil {
+				name = match[1]
+			}
 		}
-	}
-
-	// If destination is not given, use the base name of the URL.
-	if dest == "" {
-		dest = name
+		if name == "" {
+			name = path.Base(loc.Path)
+		}
 	}
 
 	obj = &Object{
@@ -103,22 +118,12 @@ func OpenURL(ctx context.Context, url string) (obj *Object, err error) {
 }
 
 // expandDropboxURL modifies a given URL which has dropbox schema.
-func expandDropboxURL(url string) string {
+func expandDropboxURL(loc *url.URL) *url.URL {
 
-	idx := strings.Index(url, ":")
-	return fmt.Sprintf("https://www.dropbox.com%v?dl=1", url[idx+2:])
-
-}
-
-// splitURL splits a given url to a URL and a file path.
-func splitURL(url string) (string, string) {
-
-	first := strings.Index(url, ":")
-	last := strings.LastIndex(url, ":")
-	if first == last {
-		return url, ""
-	}
-
-	return url[:last], url[last+1:]
+	loc.Scheme = "https"
+	loc.Path = path.Join("/", loc.Host, loc.Path)
+	loc.Host = "www.dropbox.com"
+	loc.RawQuery = "dl=1"
+	return loc
 
 }

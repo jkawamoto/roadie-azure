@@ -22,7 +22,6 @@
 package roadie
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -34,6 +33,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/Azure/azure-sdk-for-go/storage"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jkawamoto/roadie-azure/assets"
@@ -79,82 +79,80 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 
 	case strings.HasSuffix(s.Source, ".git"):
 		s.Logger.Println("Cloning the source repository", s.Source)
-		cmd := exec.CommandContext(ctx, "git", "clone", s.Source, ".")
-
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			s.Logger.Println("Cannot read stdout of git:", err.Error())
-		} else {
-			go func() {
-				defer stdout.Close()
-				scanner := bufio.NewScanner(stdout)
-				for scanner.Scan() {
-					s.Logger.Println(scanner.Text())
-				}
-			}()
+		cmds := []struct {
+			name string
+			args []string
+		}{
+			{"git", []string{"init"}},
+			{"git", []string{"remote", "add", "origin", s.Source}},
+			{"git", []string{"pull", "origin", "master"}},
 		}
-
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			s.Logger.Println("Cannot read stderr of git:", err.Error())
-		} else {
-			go func() {
-				defer stderr.Close()
-				scanner := bufio.NewScanner(stderr)
-				for scanner.Scan() {
-					s.Logger.Println(scanner.Text())
-				}
-			}()
-		}
-
-		err = cmd.Start()
-		if err == nil {
-			err = cmd.Wait()
-		}
-		return err
-
-	case strings.HasPrefix(s.Source, "http://") || strings.HasPrefix(s.Source, "https://"):
-		s.Logger.Println("Downloading the source code", s.Source)
-		obj, err := OpenURL(ctx, s.Source)
-		if err != nil {
-			return err
-		}
-
-		e := NewExpander(s.Logger)
-		if strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip") {
-			return e.Expand(ctx, obj)
-
-		} else {
-			fp, err := os.OpenFile(obj.Dest, os.O_CREATE|os.O_WRONLY, 0644)
+		for _, c := range cmds {
+			err = ExecCommand(exec.CommandContext(ctx, c.name, c.args...), s.Logger)
 			if err != nil {
-				return err
+				return
 			}
-			_, err = io.Copy(fp, obj.Body)
-			return err
+		}
+		return
 
+	case strings.HasPrefix(s.Source, "http://") || strings.HasPrefix(s.Source, "https://") || strings.HasPrefix(s.Source, "dropbox://"):
+		// Files hosted on a HTTP server.
+		s.Logger.Println("Downloading the source code", s.Source)
+		var obj *Object
+		obj, err = OpenURL(ctx, s.Source)
+		if err != nil {
+			return
+		}
+		defer obj.Body.Close()
+
+		switch {
+		case strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip"):
+			// Archived files.
+			return NewExpander(s.Logger).Expand(ctx, obj)
+
+		default:
+			// Plain files.
+			var fp *os.File
+			fp, err = os.OpenFile(filepath.Join(obj.Dest, obj.Name), os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return
+			}
+			defer fp.Close()
+			_, err = io.Copy(fp, obj.Body)
+			return
 		}
 
 	case strings.HasPrefix(s.Source, "file://"):
-		if strings.HasSuffix(s.Source, ".gz") || strings.HasSuffix(s.Source, ".xz") || strings.HasSuffix(s.Source, ".zip") {
-			filename := s.Source[len("file://"):]
+		// Local file.
+		s.Logger.Println("Copying the source code", s.Source)
+		filename := s.Source[len("file://"):]
 
+		switch {
+		case strings.HasSuffix(s.Source, ".gz") || strings.HasSuffix(s.Source, ".xz") || strings.HasSuffix(s.Source, ".zip"):
+			// Archived file.
 			s.Logger.Println("Expanding the source file", filename)
-			fp, err := os.Open(filename)
+			var fp *os.File
+			fp, err = os.Open(filename)
 			if err != nil {
-				return err
+				return
 			}
 			defer fp.Close()
 
-			e := NewExpander(s.Logger)
-			return e.Expand(ctx, &Object{
+			return NewExpander(s.Logger).Expand(ctx, &Object{
 				Name: filename,
 				Dest: ".",
 				Body: fp,
 			})
-		}
-	}
 
+		default:
+			// Plain file.
+			return os.Symlink(filename, filepath.Base(filename))
+
+		}
+
+	}
 	return fmt.Errorf("Unsupported source file type: %v", s.Source)
+
 }
 
 // DownloadDataFiles downloads files specified in data section.
@@ -178,25 +176,30 @@ func (s *Script) DownloadDataFiles(ctx context.Context) (err error) {
 				return
 			}
 
-			if strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip") {
+			switch {
+			case strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip"):
+				// Archived file.
 				err = e.Expand(ctx, obj)
 				if err != nil {
 					return
 				}
 
-			} else {
-				fp, err := os.OpenFile(obj.Dest, os.O_CREATE|os.O_WRONLY, 0644)
+			default:
+				// Plain file
+				var fp *os.File
+				fp, err = os.OpenFile(filepath.Join(obj.Dest, obj.Name), os.O_CREATE|os.O_WRONLY, 0644)
 				if err != nil {
-					return err
+					return
 				}
 				_, err = io.Copy(fp, obj.Body)
 				if err != nil {
-					return err
+					return
 				}
 
 			}
 			s.Logger.Println("Finished downloading data file", url)
 			return
+
 		})
 
 	}
@@ -205,19 +208,12 @@ func (s *Script) DownloadDataFiles(ctx context.Context) (err error) {
 }
 
 // UploadResults uploads result files.
-func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err error) {
+func (s *Script) UploadResults(ctx context.Context, store *azure.StorageService) (err error) {
+
 	dir := strings.TrimPrefix(s.Name, "task-")
 
 	s.Logger.Println("Uploading result files")
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	storage, err := azure.NewStorageService(ctx, cfg, s.Logger)
-	if err != nil {
-		return
-	}
-
-	var eg errgroup.Group
+	eg, ctx := errgroup.WithContext(ctx)
 	for i := range s.Run {
 
 		idx := i
@@ -229,7 +225,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 			filename := fmt.Sprintf("/tmp/stdout%v.txt", idx)
 			info, err := os.Stat(filename)
 			if err != nil {
-				s.Logger.Println("Cannot find stdout%v.txt\n", idx)
+				s.Logger.Printf("Cannot find stdout%v.txt\n", idx)
 				return
 			}
 
@@ -241,35 +237,39 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 			defer fp.Close()
 			outfile := fmt.Sprintf("%s/stdout%v.txt", dir, idx)
 			reader = fp
+			contentType := "text/plain"
 
 			if info.Size() > CompressThreshold {
 
 				var xzReader io.Reader
 				xzReader, err = xz.NewReader(reader)
 				if err != nil {
-					s.Logger.Println("Cannot compress an uploading file:", err.Error())
+					s.Logger.Println("Cannot compress an uploading file:", err)
 				} else {
 					reader = xzReader
 					outfile = fmt.Sprintf("%v.xz", outfile)
+					contentType = "application/x-xz"
 				}
 
 			}
-
-			url, err := storage.Upload(ctx, azure.ResultContainer, outfile, reader)
+			err = store.UploadWithMetadata(ctx, azure.ResultContainer, outfile, reader, &storage.BlobProperties{
+				ContentType: contentType,
+			}, nil)
 			if err != nil {
-				s.Logger.Printf("Fiald to upload stdout%v.txt\n", idx)
+				s.Logger.Printf("Fiald to upload stdout%v.txt", idx)
 				return
 			}
-			s.Logger.Printf("stdout%v.txt is uploaded to %v\n", idx, url)
+			s.Logger.Printf("stdout%v.txt is uploaded", idx)
 			return
 		})
 
 	}
 
+	var matches []string
 	for _, v := range s.Upload {
-		matches, err := filepath.Glob(v)
+		matches, err = filepath.Glob(v)
 		if err != nil {
-			s.Logger.Println("Not match any files to", v)
+			s.Logger.Printf("Not match any files to %v: %v", v, err)
 			continue
 		}
 
@@ -285,16 +285,12 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 				}
 				defer fp.Close()
 
-				url, err := storage.Upload(
-					ctx,
-					azure.ResultContainer,
-					fmt.Sprintf("%s/%v", dir, name),
-					fp)
+				err = store.UploadWithMetadata(ctx, azure.ResultContainer, fmt.Sprintf("%s/%v", dir, filepath.Base(name)), fp, nil, nil)
 				if err != nil {
 					s.Logger.Println("Cannot upload", name)
 					return
 				}
-				s.Logger.Printf("%v is uploaded to %v\n", name, url)
+				s.Logger.Printf("%v is uploaded", name)
 				return
 			})
 
@@ -304,6 +300,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 
 	err = eg.Wait()
 	if err != nil {
+		s.Logger.Printf("Failed uploading result files: %v", err)
 		return
 	}
 
@@ -312,7 +309,7 @@ func (s *Script) UploadResults(ctx context.Context, cfg *azure.Config) (err erro
 
 }
 
-// dockerfile generates a dockerfile for this script.
+// Dockerfile generates a dockerfile for this script.
 func (s *Script) Dockerfile() (res []byte, err error) {
 
 	if s.Image == "" {
@@ -336,7 +333,7 @@ func (s *Script) Dockerfile() (res []byte, err error) {
 
 }
 
-// entrypoint generates an entrypoint script for this script.
+// Entrypoint generates an entrypoint script for this script.
 func (s *Script) Entrypoint() (res []byte, err error) {
 
 	data, err := assets.Asset("assets/entrypoint.sh")
