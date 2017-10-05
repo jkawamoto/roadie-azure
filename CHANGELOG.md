@@ -1,3 +1,8 @@
+## 0.3.4 (2017-10-05)
+### Fixed
+* Follow the update of roadie API.
+
+
 ## 0.3.3 (2017-06-19)
 ### Fixed
 * Follow the update of docker client library.
