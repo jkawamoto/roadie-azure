@@ -32,22 +32,26 @@ import (
 func TestCreateInitScript(t *testing.T) {
 
 	var err error
-	filename := filepath.Join(os.TempDir(), "test-init.sh")
+	tmp, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("cannot create a temporary directory: %v", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	filename := filepath.Join(tmp, "test-init.sh")
 	err = createInitScript(filename)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("createInitScript returns an error: %v", err)
 	}
-	defer os.Remove(filename)
 
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("cannot read filr %v: %v", filename, err)
 	}
 	script := string(data)
 
 	if !strings.Contains(script, "apt-get update") {
-		t.Error("Created init script is not correct:", script)
+		t.Errorf("Created init script is not correct: %v", script)
 	}
-	t.Log(script)
 
 }

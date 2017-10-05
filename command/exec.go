@@ -25,9 +25,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"path"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/storage"
+	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/jkawamoto/roadie-azure/roadie"
 	"github.com/jkawamoto/roadie/cloud/azure"
@@ -70,12 +74,12 @@ func (e *Exec) run() (err error) {
 	defer func() (err error) {
 		stderr.Close()
 		bg := context.Background()
-		if storage, err := azure.NewStorageService(bg, cfg, nil); err == nil {
+		if store, err := azure.NewStorageService(bg, cfg, nil); err == nil {
 			if fp, err := os.Open(DebugFile); err != nil {
 				defer fp.Close()
-				storage.UploadWithMetadata(bg, azure.LogContainer, fmt.Sprintf("%v-debug.log", e.Name), fp, map[string]string{
-					"Content-Type": "text/plain",
-				})
+				store.UploadWithMetadata(bg, azure.LogContainer, fmt.Sprintf("%v-debug.log", e.Name), fp, &storage.BlobProperties{
+					ContentType: "text/plain",
+				}, nil)
 			}
 		}
 		return
@@ -86,7 +90,7 @@ func (e *Exec) run() (err error) {
 	storage, err := azure.NewStorageService(ctx, cfg, debugLogger)
 	if err != nil {
 
-		var token *auth.Token
+		var token *adal.Token
 		authorizer := auth.NewManualAuthorizer(cfg.TenantID, ClientID, nil, "renew")
 		token, err = authorizer.RefreshToken(&cfg.Token)
 		if err != nil {
@@ -110,14 +114,25 @@ func (e *Exec) run() (err error) {
 
 	// Delete the config file and script file from the storage.
 	logger.Println("Deleting the config file from the cloud storage")
-	err = storage.Delete(ctx, azure.StartupContainer, e.Config)
+	var loc *url.URL
+	loc, err = url.Parse("roadie://" + path.Join(azure.StartupContainer, e.Config))
 	if err != nil {
-		logger.Println("* Cannot delete the config file from the cloud storage:", err.Error())
+		logger.Println("* Cannot parse a URL:", err)
+	} else {
+		err = storage.Delete(ctx, loc)
+		if err != nil {
+			logger.Println("* Cannot delete the config file from the cloud storage:", err)
+		}
 	}
 	logger.Println("Deleting the script file from the cloud storage")
-	err = storage.Delete(ctx, azure.StartupContainer, e.Script)
+	loc, err = url.Parse("roadie://" + path.Join(azure.StartupContainer, e.Script))
 	if err != nil {
-		logger.Println("* Cannot delete the script file from the cloud storage:", err.Error())
+		logger.Println("* Cannot parse a URL:", err)
+	} else {
+		err = storage.Delete(ctx, loc)
+		if err != nil {
+			logger.Println("* Cannot delete the script file from the cloud storage:", err)
+		}
 	}
 
 	// Read the script file.
@@ -125,41 +140,41 @@ func (e *Exec) run() (err error) {
 	if err != nil {
 		// If cannot read the script file, cannot execute the task;
 		// terminate this computation.
-		logger.Println("Cannot read any script file:", err.Error())
+		logger.Println("Cannot read any script file:", err)
 		return
 	}
 	if script.Name == "" {
-		script.Name = fmt.Sprintf("roadie-%v", time.Now().Unix())
+		script.Name = fmt.Sprintf("roadie-%x", time.Now().Unix())
 	}
 
 	// Prepare source code.
 	err = script.PrepareSourceCode(ctx)
 	if err != nil {
-		logger.Println("Cannot prepare source code:", err.Error())
+		logger.Println("Cannot prepare source code:", err)
 		return
 	}
 
 	// Prepare data files.
 	err = script.DownloadDataFiles(ctx)
 	if err != nil {
-		logger.Println("Cannot prepare data files:", err.Error())
+		logger.Println("Cannot prepare data files:", err)
 		return
 	}
 
 	// Execute commands.
 	docker, err := roadie.NewDockerClient(logger)
 	if err != nil {
-		logger.Println("Cannot create docker client:", err.Error())
+		logger.Println("Cannot create docker client:", err)
 		return
 	}
 	defer docker.Close()
 	dockerfile, err := script.Dockerfile()
 	if err != nil {
-		logger.Println("Cannot create Dockerfile:", err.Error())
+		logger.Println("Cannot create Dockerfile:", err)
 	}
 	entrypoint, err := script.Entrypoint()
 	if err != nil {
-		logger.Println("Cannot create entrypoint.sh:", err.Error())
+		logger.Println("Cannot create entrypoint.sh:", err)
 	}
 
 	err = docker.Build(ctx, &roadie.DockerBuildOpt{
@@ -168,13 +183,13 @@ func (e *Exec) run() (err error) {
 		Entrypoint: entrypoint,
 	})
 	if err != nil {
-		logger.Println("Failed to prepare a sandbox container:", err.Error())
+		logger.Println("Failed to prepare a sandbox container:", err)
 		return
 	}
 
 	wd, err := os.Getwd()
 	if err != nil {
-		logger.Println("Cannot get the working directory:", err.Error())
+		logger.Println("Cannot get the working directory:", err)
 		return
 	}
 	err = docker.Start(ctx, script.Name, []mount.Mount{
@@ -192,40 +207,32 @@ func (e *Exec) run() (err error) {
 	if err != nil {
 		// Even if some errors occur, result files need to be uploads;
 		// thus not terminate this computation.
-		logger.Println("* Error occurs during execution:", err.Error())
+		logger.Println("* Error occurs during execution:", err)
 	}
 
 	// Upload results.
-	err = script.UploadResults(ctx, cfg)
+	storage, err = azure.NewStorageService(ctx, cfg, logger)
 	if err != nil {
 
-		// If error occurs, refresh the token and retry.
-		var token *auth.Token
+		var token *adal.Token
 		authorizer := auth.NewManualAuthorizer(cfg.TenantID, ClientID, nil, "renew")
 		token, err = authorizer.RefreshToken(&cfg.Token)
 		if err != nil {
-			logger.Println("Failed to refresh a token:", err.Error())
+			logger.Println("Failed to refresh a token:", err)
 			return
 		}
 
 		cfg.Token = *token
-		storage, err = azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags))
+		storage, err = azure.NewStorageService(ctx, cfg, logger)
 		if err != nil {
 			// If cannot create an interface to storage service, cannot upload
 			// computation results. Thus terminate this computation.
-			logger.Println("Failed to connect cloud storage:", err.Error())
-			return
-		}
-
-		err = script.UploadResults(ctx, cfg)
-		if err != nil {
-			logger.Println("Failed to upload result files:", err.Error())
+			logger.Println("Failed to connect cloud storage:", err)
 			return
 		}
 
 	}
-
-	return
+	return script.UploadResults(ctx, storage)
 
 }
 

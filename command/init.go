@@ -28,13 +28,14 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/sync/errgroup"
-
+	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/jkawamoto/roadie-azure/assets"
 	"github.com/jkawamoto/roadie-azure/roadie"
 	"github.com/jkawamoto/roadie/cloud/azure"
@@ -64,7 +65,7 @@ func (e *Init) run() (err error) {
 	var logWriter io.WriteCloser
 	storage, err := azure.NewStorageService(ctx, cfg, log.New(os.Stderr, "", log.LstdFlags|log.LUTC))
 	if err != nil {
-		var token *auth.Token
+		var token *adal.Token
 		a := auth.NewManualAuthorizer(cfg.TenantID, ClientID, nil, "renew")
 		token, err = a.RefreshToken(&cfg.Token)
 		if err != nil {
@@ -95,7 +96,11 @@ func (e *Init) run() (err error) {
 	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)
 
 	logger.Println("Deleting the config file from the cloud storage")
-	err = storage.Delete(ctx, azure.StartupContainer, e.Config)
+	loc, err := url.Parse("roadie://" + path.Join(azure.StartupContainer, e.Config))
+	if err != nil {
+		logger.Println("* Cannot parse a URL:", err)
+	}
+	err = storage.Delete(ctx, loc)
 	if err != nil {
 		logger.Println("* Cannot delete the config file from the cloud storage:", err.Error())
 	}
@@ -108,50 +113,19 @@ func (e *Init) run() (err error) {
 		return
 	}
 
-	wg := new(errgroup.Group)
-
 	logger.Println("Configurating this job")
 	cmd := exec.CommandContext(ctx, filename)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		logger.Println("Cannot read stdout of the init script:", err.Error())
-		stdout = ioutil.NopCloser(nil)
-	} else {
-		wg.Go(func() error {
-			return copyText(stdout, logger)
-		})
-		defer stdout.Close()
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		logger.Println("Cannot read stderr of the init script:", err.Error())
-		stderr = ioutil.NopCloser(nil)
-	} else {
-		wg.Go(func() error {
-			return copyText(stderr, logger)
-		})
-		defer stderr.Close()
-	}
-
-	err = cmd.Start()
-	if err == nil {
-		err = cmd.Wait()
-	}
+	err = roadie.ExecCommand(cmd, logger)
 	if err != nil {
 		logger.Println("Cannot finish configurating the job", err.Error())
 	} else {
 		logger.Println("Finished configurating this job")
 	}
-
-	stdout.Close()
-	stderr.Close()
-	return wg.Wait()
+	return
 
 }
 
-// CmdInit prints the initialization script, which installs docker for worker
-// nodes.
+// CmdInit execute init script to set up an instance for Roadie.
 func CmdInit(c *cli.Context) (err error) {
 
 	if c.NArg() != 2 {
@@ -174,18 +148,7 @@ func createInitScript(filename string) (err error) {
 	if err != nil {
 		return
 	}
-
-	fp, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0755)
-	if err != nil {
-		return
-	}
-	defer fp.Close()
-
-	writer := bufio.NewWriter(fp)
-	defer writer.Flush()
-
-	_, err = writer.Write(data)
-	return
+	return ioutil.WriteFile(filename, data, 0755)
 
 }
 
