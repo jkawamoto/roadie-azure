@@ -147,6 +147,39 @@ func TestPrepareSourceCode(t *testing.T) {
 		}
 	})
 
+	t.Run("dropbox source", func(t *testing.T) {
+		output.Reset()
+
+		temp, err := ioutil.TempDir("", "")
+		if err != nil {
+			t.Fatalf("cannot create a temporary directory: %v", err)
+		}
+		defer os.RemoveAll(temp)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("cannot get the working directory: %v", err)
+		}
+		err = os.Chdir(temp)
+		if err != nil {
+			t.Fatalf("cannot change the current directory: %v", err)
+		}
+		defer os.Chdir(wd)
+
+		s.Source = "dropbox://sh/hlt9248hw1u54d6/AADLBa5TfbZKAacDzoARfFhqa"
+		err = s.PrepareSourceCode(ctx)
+		if err != nil {
+			t.Fatalf("PrepareSourceCode returns an error: %v", err)
+		}
+		_, err = os.Stat("aaa")
+		if err != nil {
+			t.Errorf("download source files don't have executable file %q", "aaa")
+		}
+		if t.Failed() {
+			data, _ := exec.Command("ls", "-la").Output()
+			t.Log(string(data))
+		}
+	})
+
 	t.Run("archived https source", func(t *testing.T) {
 		output.Reset()
 

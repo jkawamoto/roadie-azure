@@ -95,7 +95,7 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 		}
 		return
 
-	case strings.HasPrefix(s.Source, "http://") || strings.HasPrefix(s.Source, "https://"):
+	case strings.HasPrefix(s.Source, "http://") || strings.HasPrefix(s.Source, "https://") || strings.HasPrefix(s.Source, "dropbox://"):
 		// Files hosted on a HTTP server.
 		s.Logger.Println("Downloading the source code", s.Source)
 		var obj *Object
@@ -103,6 +103,7 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 		if err != nil {
 			return
 		}
+		defer obj.Body.Close()
 
 		switch {
 		case strings.HasSuffix(obj.Name, ".gz") || strings.HasSuffix(obj.Name, ".xz") || strings.HasSuffix(obj.Name, ".zip"):
@@ -112,7 +113,7 @@ func (s *Script) PrepareSourceCode(ctx context.Context) (err error) {
 		default:
 			// Plain files.
 			var fp *os.File
-			fp, err = os.OpenFile(obj.Dest, os.O_CREATE|os.O_WRONLY, 0644)
+			fp, err = os.OpenFile(filepath.Join(obj.Dest, obj.Name), os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				return
 			}
