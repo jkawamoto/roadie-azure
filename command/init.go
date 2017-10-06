@@ -27,10 +27,8 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 
 	"github.com/Azure/go-autorest/autorest/adal"
@@ -92,16 +90,6 @@ func (e *Init) run() (err error) {
 		defer logWriter.Close()
 	}
 	logger := log.New(logWriter, "", log.LstdFlags|log.LUTC)
-
-	logger.Println("Deleting the config file from the cloud storage")
-	loc, err := url.Parse("roadie://" + path.Join(azure.StartupContainer, e.Config))
-	if err != nil {
-		logger.Println("* Cannot parse a URL:", err)
-	}
-	err = storage.Delete(ctx, loc)
-	if err != nil {
-		logger.Println("* Cannot delete the config file from the cloud storage:", err.Error())
-	}
 
 	logger.Println("Creating init script")
 	filename := filepath.Join(os.TempDir(), "init.sh")
