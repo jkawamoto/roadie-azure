@@ -19,6 +19,7 @@
 # along with Roadie Azure.  If not, see <http:#www.gnu.org/licenses/>.
 #
 VERSION := $(shell git describe --abbrev=0 --tags)
+GHRFLAGS =
 default: build
 .PHONY: asset build release get-deps test
 
@@ -33,7 +34,7 @@ build: asset
 	rm -r pkg/$(VERSION)/roadie-azure_linux_amd64
 
 release: build
-	ghr -u jkawamoto v$(VERSION) pkg/$(VERSION)
+	ghr -u jkawamoto $(GHRFLAGS) v$(VERSION) pkg/$(VERSION)
 
 get-deps:
 	go get -d -t -v .
