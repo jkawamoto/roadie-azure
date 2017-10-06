@@ -1,7 +1,7 @@
 # Roadie Azure
 [![GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/copyleft/gpl.html)
 [![Go Report](https://goreportcard.com/badge/github.com/jkawamoto/roadie-azure)](https://goreportcard.com/report/github.com/jkawamoto/roadie-azure)
-[![Release](https://img.shields.io/badge/release-0.3.4-brightgreen.svg)](https://github.com/jkawamoto/roadie-azure/releases/tag/v0.3.4)
+[![Release](https://img.shields.io/badge/release-0.3.5-brightgreen.svg)](https://github.com/jkawamoto/roadie-azure/releases/tag/v0.3.5)
 
 [![Logo](https://jkawamoto.github.io/roadie/img/banner.png)](https://jkawamoto.github.io/roadie/)
 
