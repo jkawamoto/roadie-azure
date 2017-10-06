@@ -211,7 +211,7 @@ func (e *Exec) run() (err error) {
 	}
 
 	// Upload results.
-	storage, err = azure.NewStorageService(ctx, cfg, logger)
+	storage, err = azure.NewStorageService(ctx, cfg, debugLogger)
 	if err != nil {
 
 		var token *adal.Token
