@@ -22,7 +22,6 @@
 package command
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -33,7 +32,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/jkawamoto/roadie-azure/assets"
@@ -149,18 +147,5 @@ func createInitScript(filename string) (err error) {
 		return
 	}
 	return ioutil.WriteFile(filename, data, 0755)
-
-}
-
-// copyText scanns lines from a reader and writes it to a logger.
-func copyText(reader io.Reader, logger *log.Logger) error {
-
-	s := bufio.NewScanner(reader)
-	for s.Scan() {
-		for _, line := range strings.Split(s.Text(), "\r") {
-			logger.Println(line)
-		}
-	}
-	return s.Err()
 
 }
