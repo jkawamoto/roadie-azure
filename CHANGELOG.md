@@ -1,3 +1,12 @@
+## 0.3.5 (2017-10-06)
+### Update
+* Reduce logging messages in exec command.
+
+### Fixed
+* Keep configuration files for init command so that new created instances
+  can use them afterwards.
+
+
 ## 0.3.4 (2017-10-05)
 ### Fixed
 * Follow the update of roadie API.
